@@ -11,10 +11,24 @@
     <p class="text-muted">Address: {{ item.address }}</p>
     <p>Starting price: <strong>{{ item.starting_price }}</strong></p>
     <p>Highest bid: <strong>{% if item.highest_bid %}{{ item.highest_bid.amount }}{% else %}-{% endif %}</strong></p>
-    <p>Participants: {{ item.participants_count }}</p>
+    <p>Participants: {{ item.participants_count }}{% if item.seat_limit %} / {{ item.seat_limit }} seats{% endif %}</p>
     <p>Ends at: {{ item.ends_at }}</p>
 
     {% if user.is_authenticated %}
+      {% if participant and participant.is_booked %}
+        <div class="alert alert-success py-2">
+          Seat booked. Code: <strong>{{ participant.booking_code }}</strong>
+        </div>
+        <div class="d-flex gap-2 mb-2">
+          <a href="/items/{{ item.pk }}/unbook/" class="btn btn-outline-warning btn-sm">Unbook seat</a>
+          <a href="/items/{{ item.pk }}/penalty/pay/" class="btn btn-outline-danger btn-sm">Pay penalty ₹200</a>
+        </div>
+      {% else %}
+        <div class="mb-2">
+          <a href="/items/{{ item.pk }}/book/" class="btn btn-outline-success btn-sm">Book seat ₹5</a>
+        </div>
+      {% endif %}
+
       <form action="/items/{{ item.pk }}/bid/" method="post" class="row gy-2 gx-2 align-items-center">
         {% csrf_token %}
         <div class="col-auto">
@@ -28,6 +42,13 @@
       {% if item.buy_now_price %}
       <div class="mt-3">
         <a href="/items/{{ item.pk }}/buy/" class="btn btn-success">Buy now for {{ item.buy_now_price }}</a>
+      </div>
+      {% endif %}
+
+      {% if item.owner_id == user.id %}
+      <div class="mt-3 d-flex gap-2">
+        <a href="/items/{{ item.pk }}/preview/start/" class="btn btn-outline-info btn-sm">Start 10-min Preview</a>
+        <a href="/items/{{ item.pk }}/settle/" class="btn btn-outline-light btn-sm">Settle Auction</a>
       </div>
       {% endif %}
     {% else %}
@@ -49,4 +70,22 @@
     <li class="list-group-item">No bids yet.</li>
   {% endfor %}
 </ul>
+
+<hr>
+<h2 class="h6">Join with code</h2>
+<form action="/join/" method="post" class="row g-2">
+  {% csrf_token %}
+  <input type="hidden" name="item_id" value="{{ item.pk }}">
+  <div class="col-auto"><input type="text" name="code" class="form-control" placeholder="CODE" required></div>
+  <div class="col-auto"><button class="btn btn-outline-primary btn-sm">Join</button></div>
+</form>
+
+<script>
+  // Presence ping every 10s if authenticated
+  {% if user.is_authenticated %}
+  setInterval(() => {
+    fetch('/items/{{ item.pk }}/presence/');
+  }, 10000);
+  {% endif %}
+</script>
 {% endblock %}

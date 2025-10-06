@@ -1,4 +1,6 @@
 from decimal import Decimal
+import random
+import string
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -8,7 +10,7 @@ from django.utils import timezone
 from django.http import HttpRequest, HttpResponse
 from django import forms
 
-from .models import AuctionItem, Bid, Payment, AuctionParticipant
+from .models import AuctionItem, Bid, Payment, AuctionParticipant, Order
 from .utils import append_ledger_block
 
 
@@ -24,6 +26,7 @@ class AuctionItemForm(forms.ModelForm):
             'buy_now_price',
             'starts_at',
             'ends_at',
+            'seat_limit',
         ]
 
 
@@ -81,10 +84,14 @@ def item_create(request: HttpRequest) -> HttpResponse:
 
 def item_detail(request: HttpRequest, pk: int) -> HttpResponse:
     item = get_object_or_404(AuctionItem, pk=pk)
-    bids = item.bids.select_related('bidder').all()
+    bids = item.bids.select_related('bidder').filter(is_active=True)
+    participant = None
+    if request.user.is_authenticated:
+        participant = AuctionParticipant.objects.filter(item=item, user=request.user).first()
     return render(request, 'auctions/item_detail.html', {
         'item': item,
         'bids': bids,
+        'participant': participant,
     })
 
 
@@ -95,8 +102,15 @@ def place_bid(request: HttpRequest, pk: int) -> HttpResponse:
         messages.error(request, 'Bidding is closed for this item.')
         return redirect('item_detail', pk=pk)
 
-    # Ensure the user is registered as a participant before enforcing min participants
-    AuctionParticipant.objects.get_or_create(item=item, user=request.user)
+    # Ensure the user has a booked seat
+    participant, _ = AuctionParticipant.objects.get_or_create(item=item, user=request.user)
+    if not participant.is_booked:
+        messages.error(request, 'Only seat-booked users can bid. Book a seat first (₹5).')
+        return redirect('item_detail', pk=pk)
+
+    if participant.penalty_due:
+        messages.error(request, 'Penalty due ₹200. Please pay the penalty to continue.')
+        return redirect('item_detail', pk=pk)
 
     if item.participants.count() < 2:
         messages.error(request, 'At least 2 participants are required to start bidding.')
@@ -116,7 +130,7 @@ def place_bid(request: HttpRequest, pk: int) -> HttpResponse:
         messages.error(request, f'Bid must be at least {min_allowed}.')
         return redirect('item_detail', pk=pk)
 
-    Bid.objects.create(item=item, bidder=request.user, amount=amount)
+    Bid.objects.create(item=item, bidder=request.user, amount=amount, is_active=True)
     messages.success(request, 'Bid placed!')
     return redirect('item_detail', pk=pk)
 
@@ -159,4 +173,196 @@ def google_pay_callback(request: HttpRequest, pk: int) -> HttpResponse:
     messages.success(request, 'Payment successful!')
     return redirect('item_detail', pk=payment.item.pk)
 
-# Create your views here.
+
+def _generate_code(length: int = 8) -> str:
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
+
+@login_required
+def book_seat(request: HttpRequest, pk: int) -> HttpResponse:
+    item = get_object_or_404(AuctionItem, pk=pk)
+    participant, _ = AuctionParticipant.objects.get_or_create(item=item, user=request.user)
+    if participant.is_booked:
+        messages.info(request, 'Seat already booked. Your code is available below.')
+        return redirect('item_detail', pk=pk)
+
+    # Enforce seat limit if set (>0)
+    if item.seat_limit and item.participants.filter(is_booked=True, unbooked_at__isnull=True).count() >= item.seat_limit:
+        messages.error(request, 'No seats available.')
+        return redirect('item_detail', pk=pk)
+
+    # Charge ₹5 seat booking
+    payment = Payment.objects.create(item=item, buyer=request.user, amount=Decimal('5.00'), purpose='seat', status='processing')
+    payment.provider_ref = f"SEAT-{payment.pk}"
+    payment.status = 'succeeded'
+    payment.save()
+    append_ledger_block({
+        'type': 'seat_booking',
+        'item_id': item.pk,
+        'user_id': request.user.pk,
+        'payment_id': payment.pk,
+        'amount': str(payment.amount),
+        'timestamp': timezone.now().isoformat(),
+    })
+    participant.is_booked = True
+    participant.paid = True
+    participant.paid_at = timezone.now()
+    participant.booking_code = _generate_code()
+    participant.save()
+    messages.success(request, f'Seat booked successfully. Your code: {participant.booking_code}')
+    return redirect('item_detail', pk=pk)
+
+
+@login_required
+def unbook_seat(request: HttpRequest, pk: int) -> HttpResponse:
+    item = get_object_or_404(AuctionItem, pk=pk)
+    participant = get_object_or_404(AuctionParticipant, item=item, user=request.user)
+    if not participant.is_booked:
+        messages.error(request, 'You do not have a booked seat.')
+        return redirect('item_detail', pk=pk)
+    # Allow unbook only within 1 minute of preview start
+    if participant.preview_started_at is None:
+        can_unbook = True
+    else:
+        can_unbook = timezone.now() <= participant.preview_started_at + timezone.timedelta(minutes=1)
+    if not can_unbook:
+        messages.error(request, 'Unbooking window is closed (only within 1 minute of preview).')
+        return redirect('item_detail', pk=pk)
+    participant.is_booked = False
+    participant.unbooked_at = timezone.now()
+    participant.save()
+    messages.success(request, 'Seat unbooked.')
+    return redirect('item_detail', pk=pk)
+
+
+def join_with_code(request: HttpRequest) -> HttpResponse:
+    if request.method != 'POST':
+        return redirect('home')
+    code = request.POST.get('code', '').strip().upper()
+    item_id = request.POST.get('item_id')
+    item = get_object_or_404(AuctionItem, pk=item_id)
+    participant = AuctionParticipant.objects.filter(item=item, booking_code=code).first()
+    if not participant:
+        messages.error(request, 'Invalid code.')
+        return redirect('item_detail', pk=item.pk)
+    # Re-activate booking if previously unbooked
+    participant.is_booked = True
+    participant.unbooked_at = None
+    participant.save()
+    messages.success(request, 'Joined with booking code.')
+    return redirect('item_detail', pk=item.pk)
+
+
+@login_required
+def start_preview(request: HttpRequest, pk: int) -> HttpResponse:
+    item = get_object_or_404(AuctionItem, pk=pk)
+    if item.owner_id != request.user.id:
+        messages.error(request, 'Only the owner can start preview.')
+        return redirect('item_detail', pk=pk)
+    now = timezone.now()
+    AuctionParticipant.objects.filter(item=item, is_booked=True, unbooked_at__isnull=True).update(preview_started_at=now)
+    messages.success(request, 'Preview started for all booked participants (10 minutes).')
+    return redirect('item_detail', pk=pk)
+
+
+@login_required
+def presence_ping(request: HttpRequest, pk: int) -> HttpResponse:
+    item = get_object_or_404(AuctionItem, pk=pk)
+    participant, _ = AuctionParticipant.objects.get_or_create(item=item, user=request.user)
+    participant.last_seen_at = timezone.now()
+    participant.save(update_fields=['last_seen_at'])
+
+    # Check if current highest bidder is offline; if so, penalize and deactivate their bids
+    highest = item.bids.filter(is_active=True).order_by('-amount', 'created_at').first()
+    if highest:
+        highest_part = AuctionParticipant.objects.filter(item=item, user=highest.bidder).first()
+        if highest_part and highest_part.last_seen_at:
+            offline_for = timezone.now() - highest_part.last_seen_at
+            if offline_for.total_seconds() > 30 and not highest_part.penalty_due:
+                # Create penalty payment
+                penalty_payment = Payment.objects.create(
+                    item=item,
+                    buyer=highest.bidder,
+                    amount=Decimal('200.00'),
+                    purpose='penalty',
+                    status='pending',
+                )
+                highest_part.penalty_due = True
+                highest_part.save(update_fields=['penalty_due'])
+                # Deactivate their active bids
+                item.bids.filter(bidder=highest.bidder, is_active=True).update(is_active=False)
+                append_ledger_block({
+                    'type': 'penalty_assessed',
+                    'item_id': item.pk,
+                    'user_id': highest.bidder.pk,
+                    'payment_id': penalty_payment.pk,
+                    'amount': str(penalty_payment.amount),
+                    'timestamp': timezone.now().isoformat(),
+                })
+    return HttpResponse('ok')
+
+
+@login_required
+def pay_penalty(request: HttpRequest, pk: int) -> HttpResponse:
+    item = get_object_or_404(AuctionItem, pk=pk)
+    participant = get_object_or_404(AuctionParticipant, item=item, user=request.user)
+    if not participant.penalty_due:
+        messages.info(request, 'No penalty due.')
+        return redirect('item_detail', pk=pk)
+    payment = Payment.objects.filter(item=item, buyer=request.user, purpose='penalty', status__in=['pending', 'processing']).order_by('-created_at').first()
+    if not payment:
+        payment = Payment.objects.create(item=item, buyer=request.user, amount=Decimal('200.00'), purpose='penalty', status='processing')
+    payment.provider_ref = f"PEN-{payment.pk}"
+    payment.status = 'succeeded'
+    payment.save()
+    append_ledger_block({
+        'type': 'penalty_paid',
+        'item_id': item.pk,
+        'user_id': request.user.pk,
+        'payment_id': payment.pk,
+        'amount': str(payment.amount),
+        'timestamp': timezone.now().isoformat(),
+    })
+    participant.penalty_due = False
+    participant.save(update_fields=['penalty_due'])
+    messages.success(request, 'Penalty paid. You can continue bidding.')
+    return redirect('item_detail', pk=pk)
+
+
+@login_required
+def settle(request: HttpRequest, pk: int) -> HttpResponse:
+    item = get_object_or_404(AuctionItem, pk=pk)
+    if item.owner_id != request.user.id and not request.user.is_staff:
+        messages.error(request, 'Not allowed.')
+        return redirect('item_detail', pk=pk)
+    if item.is_settled:
+        messages.info(request, 'Item already settled.')
+        return redirect('item_detail', pk=pk)
+    if timezone.now() < item.ends_at:
+        messages.error(request, 'Auction not ended yet.')
+        return redirect('item_detail', pk=pk)
+    highest = item.bids.filter(is_active=True).order_by('-amount', 'created_at').first()
+    if not highest:
+        item.is_settled = True
+        item.is_active = False
+        item.save(update_fields=['is_settled', 'is_active'])
+        messages.info(request, 'No bids. Auction closed.')
+        return redirect('item_detail', pk=pk)
+
+    order = Order.objects.create(item=item, buyer=highest.bidder, amount=highest.amount, status='paid', paid_at=timezone.now())
+    payment = Payment.objects.create(item=item, buyer=highest.bidder, amount=highest.amount, purpose='order', status='succeeded', provider_ref=f"ORD-{order.pk}")
+    append_ledger_block({
+        'type': 'order_paid',
+        'item_id': item.pk,
+        'buyer_id': highest.bidder.pk,
+        'order_id': order.pk,
+        'payment_id': payment.pk,
+        'amount': str(payment.amount),
+        'timestamp': timezone.now().isoformat(),
+    })
+    item.is_settled = True
+    item.is_active = False
+    item.save(update_fields=['is_settled', 'is_active'])
+    messages.success(request, 'Winner charged automatically and order created.')
+    return redirect('item_detail', pk=pk)
+
