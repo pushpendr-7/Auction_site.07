@@ -1,0 +1,10 @@
+{% extends 'auctions/base.html' %}
+{% block title %}Register{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">Register</h1>
+<form method="post" class="card card-body">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <button class="btn btn-success">Create account</button>
+</form>
+{% endblock %}
