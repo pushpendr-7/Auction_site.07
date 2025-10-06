@@ -16,6 +16,7 @@ class AuctionItem(models.Model):
     starts_at = models.DateTimeField(default=timezone.now)
     ends_at = models.DateTimeField()
     is_active = models.BooleanField(default=True)
+    seat_limit = models.PositiveIntegerField(default=10, help_text='Total seats available to participate')
 
     def __str__(self) -> str:
         return f"{self.title} (#{self.pk})"
@@ -50,6 +51,7 @@ class AuctionParticipant(models.Model):
     item = models.ForeignKey(AuctionItem, on_delete=models.CASCADE, related_name='participants')
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='auction_participations')
     joined_at = models.DateTimeField(auto_now_add=True)
+    requires_penalty = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ('item', 'user')
@@ -65,6 +67,7 @@ class Payment(models.Model):
     provider = models.CharField(max_length=50, default='google_pay')
     provider_ref = models.CharField(max_length=200, blank=True)
     status = models.CharField(max_length=30, default='pending')
+    purpose = models.CharField(max_length=30, default='other')  # seat_booking | offline_penalty | buy_now | final_charge | other
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self) -> str:
@@ -84,5 +87,33 @@ class LedgerBlock(models.Model):
 
     def __str__(self) -> str:
         return f"Block {self.index} {self.hash[:8]}"
+
+
+class SeatBooking(models.Model):
+    STATUS_BOOKED = 'booked'
+    STATUS_USED = 'used'
+    STATUS_UNBOOKED = 'unbooked'
+
+    STATUS_CHOICES = [
+        (STATUS_BOOKED, 'Booked'),
+        (STATUS_USED, 'Used'),
+        (STATUS_UNBOOKED, 'Unbooked'),
+    ]
+
+    item = models.ForeignKey(AuctionItem, on_delete=models.CASCADE, related_name='seat_bookings')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='seat_bookings')
+    code = models.CharField(max_length=16, unique=True)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_BOOKED)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['item', 'user']),
+            models.Index(fields=['code']),
+        ]
+
+    def __str__(self) -> str:
+        return f"SeatBooking {self.code} for item {self.item_id} ({self.status})"
 
 # Create your models here.
