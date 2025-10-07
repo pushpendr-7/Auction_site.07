@@ -29,6 +29,7 @@
         </div>
       {% endif %}
 
+      {% if item.owner_id != user.id %}
       <form action="/items/{{ item.pk }}/bid/" method="post" class="row gy-2 gx-2 align-items-center">
         {% csrf_token %}
         <div class="col-auto">
@@ -38,8 +39,11 @@
           <button class="btn btn-outline-primary">Place bid</button>
         </div>
       </form>
+      {% else %}
+      <div class="alert alert-info py-2 mt-2">Owners cannot place bids.</div>
+      {% endif %}
 
-      {% if item.buy_now_price %}
+      {% if item.buy_now_price and item.owner_id != user.id %}
       <div class="mt-3">
         <a href="/items/{{ item.pk }}/buy/" class="btn btn-success">Buy now for {{ item.buy_now_price }}</a>
       </div>

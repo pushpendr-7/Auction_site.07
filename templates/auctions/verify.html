@@ -1,0 +1,39 @@
+{% extends 'auctions/base.html' %}
+{% block title %}Verify your account{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">Verify your account</h1>
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="h6">Phone verification</h2>
+        {% if profile.phone_verified_at %}
+          <div class="alert alert-success py-2">Phone verified at {{ profile.phone_verified_at }}</div>
+        {% else %}
+          <p class="small text-muted">Enter the 6-digit OTP sent to your phone.</p>
+          <form method="post" class="row g-2">
+            {% csrf_token %}
+            <div class="col-auto"><input type="text" name="otp" class="form-control" maxlength="6" placeholder="123456" required></div>
+            <div class="col-auto"><button class="btn btn-outline-success btn-sm">Verify</button></div>
+            <div class="col-12 small"><a href="{% url 'resend_phone_otp' %}">Resend OTP</a></div>
+            <div class="col-12 small text-muted">For demo: OTP = {{ profile.phone_otp_code }}</div>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="h6">Email verification</h2>
+        {% if profile.email_verified_at %}
+          <div class="alert alert-success py-2">Email verified at {{ profile.email_verified_at }}</div>
+        {% else %}
+          <p class="small text-muted">Click the link we sent to your email to verify.</p>
+          <div class="small">Demo link: <a href="/verify/?email_token={{ profile.email_verify_token }}">Verify email</a></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -19,7 +19,10 @@ urlpatterns = [
     path('items/<int:pk>/preview/start/', views.start_preview, name='start_preview'),
     path('items/<int:pk>/call/start/', views.start_call, name='start_call'),
     path('items/<int:pk>/call/', views.call_room, name='call_room'),
+    path('items/<int:pk>/call/activity/', views.call_activity, name='call_activity'),
     path('items/<int:pk>/presence/', views.presence_ping, name='presence_ping'),
     path('items/<int:pk>/penalty/pay/', views.pay_penalty, name='pay_penalty'),
     path('items/<int:pk>/settle/', views.settle, name='settle'),
+    path('verify/', views.verify, name='verify'),
+    path('verify/resend-otp/', views.resend_phone_otp, name='resend_phone_otp'),
 ]

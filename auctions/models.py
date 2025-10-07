@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from django.conf import settings
 
 User = get_user_model()
 
@@ -116,3 +117,17 @@ class LedgerBlock(models.Model):
         return f"Block {self.index} {self.hash[:8]}"
 
 # Create your models here.
+
+
+class UserProfile(models.Model):
+    """Additional user information and verification state."""
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='profile')
+    phone = models.CharField(max_length=20, blank=True)
+    location = models.CharField(max_length=120, blank=True, help_text='City/Area')
+    phone_otp_code = models.CharField(max_length=6, blank=True)
+    phone_verified_at = models.DateTimeField(null=True, blank=True)
+    email_verified_at = models.DateTimeField(null=True, blank=True)
+    email_verify_token = models.CharField(max_length=64, blank=True)
+
+    def __str__(self) -> str:
+        return f"Profile for {self.user_id}"
