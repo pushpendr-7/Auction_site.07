@@ -113,7 +113,8 @@ def item_create(request: HttpRequest) -> HttpResponse:
 
 def item_detail(request: HttpRequest, pk: int) -> HttpResponse:
     item = get_object_or_404(AuctionItem, pk=pk)
-    bids = item.bids.select_related('bidder').filter(is_active=True)
+    # Show recent bids including inactive ones for transparency
+    bids = item.bids.select_related('bidder').order_by('-created_at')[:50]
     participant = None
     if request.user.is_authenticated:
         participant = AuctionParticipant.objects.filter(item=item, user=request.user).first()
@@ -389,9 +390,9 @@ def call_activity(request: HttpRequest, pk: int) -> JsonResponse:
         .values('user__username', 'booking_code', 'last_seen_at', 'penalty_due')
     )
     bids = list(
-        item.bids.select_related('bidder').filter(is_active=True)
+        item.bids.select_related('bidder')
         .order_by('-created_at')[:20]
-        .values('bidder__username', 'amount', 'created_at')
+        .values('bidder__username', 'amount', 'created_at', 'is_active')
     )
     return JsonResponse({
         'participants': participants,

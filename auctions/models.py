@@ -27,7 +27,7 @@ class AuctionItem(models.Model):
 
     @property
     def highest_bid(self):
-        return self.bids.order_by('-amount', 'created_at').first()
+        return self.bids.filter(is_active=True).order_by('-amount', 'created_at').first()
 
     def can_accept_bids(self) -> bool:
         now = timezone.now()
