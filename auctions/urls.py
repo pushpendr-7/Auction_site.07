@@ -12,4 +12,11 @@ urlpatterns = [
     path('items/<int:pk>/buy/', views.buy_now, name='buy_now'),
     path('payments/<int:pk>/gpay/', views.google_pay_start, name='google_pay_start'),
     path('payments/<int:pk>/callback/', views.google_pay_callback, name='google_pay_callback'),
+    path('items/<int:pk>/book/', views.book_seat, name='book_seat'),
+    path('items/<int:pk>/unbook/', views.unbook_seat, name='unbook_seat'),
+    path('join/', views.join_with_code, name='join_with_code'),
+    path('items/<int:pk>/preview/start/', views.start_preview, name='start_preview'),
+    path('items/<int:pk>/presence/', views.presence_ping, name='presence_ping'),
+    path('items/<int:pk>/penalty/pay/', views.pay_penalty, name='pay_penalty'),
+    path('items/<int:pk>/settle/', views.settle, name='settle'),
 ]
