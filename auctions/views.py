@@ -63,9 +63,16 @@ def register_view(request: HttpRequest) -> HttpResponse:
         form = RegistrationForm(request.POST)
         if form.is_valid():
             user = form.save()
-            login(request, user)
-            messages.success(request, 'Account created. Verify your phone and email.')
-            return redirect('verify')
+            # Authenticate before login so the auth backend is set
+            raw_password = form.cleaned_data.get('password1')
+            authenticated_user = authenticate(request, username=user.username, password=raw_password)
+            if authenticated_user is not None:
+                login(request, authenticated_user)
+                messages.success(request, 'Account created. Verify your phone and email.')
+                return redirect('verify')
+            # If authentication fails (unlikely), ask the user to log in manually
+            messages.success(request, 'Account created. Please log in to continue verification.')
+            return redirect('login')
     else:
         form = RegistrationForm()
     return render(request, 'auctions/register.html', {'form': form})
