@@ -1,7 +1,31 @@
-body{ background:#0b1320; color:#e9eef7; }
-.navbar{ background:#121a2b !important; }
-.card{ background:#182036; border:1px solid #25304d; }
-.btn-primary{ background:#3b82f6; border:0; }
-.btn-success{ background:#10b981; border:0; }
-.alert{ border:0; }
-.form-control{ background:#0f172a; color:#e5e7eb; border:1px solid #334155; }
+/* Black & White theme only */
+:root{
+  --bg:#000;        /* black */
+  --fg:#fff;        /* white */
+  --muted:#bbb;     /* light gray for subtle text */
+  --surface:#0f0f0f;/* near-black cards */
+  --border:#222;    /* subtle borders */
+}
+
+body{ background:var(--bg); color:var(--fg); }
+.navbar{ background:#000 !important; }
+.card{ background:var(--surface); border:1px solid var(--border); }
+.card .card-title{ color:var(--fg); }
+.card .card-text{ color:var(--muted); }
+.alert{ border:1px solid var(--border); color:var(--fg); background:transparent; }
+.form-control{ background:#000; color:var(--fg); border:1px solid var(--border); }
+.form-control::placeholder{ color:#777; }
+
+/* Buttons constrained to black/white */
+.btn{ border:1px solid var(--border); color:var(--fg); background:transparent; }
+.btn:hover{ background:#111; color:var(--fg); }
+.btn-primary,.btn-outline-primary{ border-color:var(--border); color:var(--fg); background:transparent; }
+.btn-success,.btn-outline-success{ border-color:var(--border); color:var(--fg); background:transparent; }
+.btn-outline-light{ border-color:#444; color:#fff; }
+.btn-outline-warning{ border-color:#555; color:#fff; }
+.btn-outline-danger{ border-color:#666; color:#fff; }
+.btn-outline-secondary{ border-color:#444; color:#fff; }
+
+/* Utilities */
+.text-muted{ color:var(--muted) !important; }
+.bg-black{ background:#000 !important; }

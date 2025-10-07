@@ -31,8 +31,8 @@ class AuctionItemForm(forms.ModelForm):
 
 
 def home(request: HttpRequest) -> HttpResponse:
-    now = timezone.now()
-    items = AuctionItem.objects.filter(ends_at__gt=now).order_by('ends_at')
+    # Show all items on the home page
+    items = AuctionItem.objects.all().order_by('-ends_at')
     return render(request, 'auctions/home.html', {'items': items})
 
 
@@ -263,6 +263,40 @@ def start_preview(request: HttpRequest, pk: int) -> HttpResponse:
     AuctionParticipant.objects.filter(item=item, is_booked=True, unbooked_at__isnull=True).update(preview_started_at=now)
     messages.success(request, 'Preview started for all booked participants (10 minutes).')
     return redirect('item_detail', pk=pk)
+
+
+@login_required
+def start_call(request: HttpRequest, pk: int) -> HttpResponse:
+    item = get_object_or_404(AuctionItem, pk=pk)
+    if item.owner_id != request.user.id:
+        messages.error(request, 'Only the owner can start the call.')
+        return redirect('item_detail', pk=pk)
+    item.call_started_at = timezone.now()
+    item.save(update_fields=['call_started_at'])
+    messages.success(request, 'Live video call started.')
+    return redirect('call_room', pk=pk)
+
+
+@login_required
+def call_room(request: HttpRequest, pk: int) -> HttpResponse:
+    item = get_object_or_404(AuctionItem, pk=pk)
+    if item.call_started_at is None:
+        messages.info(request, 'Call has not started yet.')
+        return redirect('item_detail', pk=pk)
+
+    # Seller can always join; others must have a booked seat
+    if item.owner_id != request.user.id:
+        participant = AuctionParticipant.objects.filter(
+            item=item,
+            user=request.user,
+            is_booked=True,
+            unbooked_at__isnull=True,
+        ).first()
+        if not participant:
+            messages.error(request, 'Only seat-booked users can join the call.')
+            return redirect('item_detail', pk=pk)
+
+    return render(request, 'auctions/call.html', { 'item': item })
 
 
 @login_required

@@ -1,0 +1,38 @@
+{% extends 'auctions/base.html' %}
+{% block title %}Call - {{ item.title }}{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">Live Call: {{ item.title }}</h1>
+<div class="row g-3">
+  <div class="col-md-8">
+    <div class="ratio ratio-16x9 bg-black d-flex align-items-center justify-content-center border border-1">
+      <video id="localVideo" autoplay playsinline muted class="w-100 h-100"></video>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-body">
+        <p class="small text-muted">This is a placeholder call room. Integrate a provider (e.g., LiveKit, Twilio, Jitsi) for real video.</p>
+        <div class="d-flex gap-2">
+          <button id="startBtn" class="btn btn-outline-light btn-sm">Start Camera</button>
+          <a href="/items/{{ item.pk }}/" class="btn btn-outline-secondary btn-sm">Back to Item</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(async function(){
+  const startBtn = document.getElementById('startBtn');
+  const localVideo = document.getElementById('localVideo');
+  async function startCam(){
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      localVideo.srcObject = stream;
+    } catch (e) {
+      alert('Camera/mic permission denied.');
+    }
+  }
+  startBtn.addEventListener('click', startCam);
+})();
+</script>
+{% endblock %}
