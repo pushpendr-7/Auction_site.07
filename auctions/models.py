@@ -21,6 +21,8 @@ class AuctionItem(models.Model):
     is_settled = models.BooleanField(default=False)
     # When the seller starts a live video call for this item
     call_started_at = models.DateTimeField(null=True, blank=True)
+    # Optional Google Meet link for the live call
+    meet_url = models.URLField(max_length=255, blank=True)
 
     def __str__(self) -> str:
         return f"{self.title} (#{self.pk})"

@@ -12,6 +12,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django import forms
 
 from .models import AuctionItem, Bid, Payment, AuctionParticipant, Order, UserProfile
+from urllib.parse import urlparse
 from .utils import append_ledger_block
 
 
@@ -361,6 +362,44 @@ def call_room(request: HttpRequest, pk: int) -> HttpResponse:
             messages.error(request, 'Enter your booking code to join the call.')
             return redirect('item_detail', pk=pk)
     return render(request, 'auctions/call.html', { 'item': item, 'is_owner': is_owner })
+
+
+@login_required
+def set_meet_link(request: HttpRequest, pk: int) -> HttpResponse:
+    item = get_object_or_404(AuctionItem, pk=pk)
+    if item.owner_id != request.user.id:
+        messages.error(request, 'Only the owner can update the Google Meet link.')
+        return redirect('item_detail', pk=pk)
+    if request.method != 'POST':
+        return redirect('item_detail', pk=pk)
+
+    raw_url = (request.POST.get('meet_url') or '').strip()
+    if raw_url == '':
+        # Allow clearing the link
+        item.meet_url = ''
+        item.save(update_fields=['meet_url'])
+        messages.info(request, 'Google Meet link cleared.')
+        return redirect('item_detail', pk=pk)
+
+    try:
+        parsed = urlparse(raw_url)
+    except Exception:
+        parsed = None
+
+    if not parsed or parsed.scheme not in ('http', 'https') or not parsed.netloc:
+        messages.error(request, 'Please enter a valid URL like https://meet.google.com/abc-defg-hij')
+        return redirect('item_detail', pk=pk)
+
+    # Restrict to Google Meet domains only
+    host = parsed.netloc.lower()
+    if not (host == 'meet.google.com' or host.endswith('.meet.google.com')):
+        messages.error(request, 'Only Google Meet links are allowed (https://meet.google.com/...).')
+        return redirect('item_detail', pk=pk)
+
+    item.meet_url = raw_url
+    item.save(update_fields=['meet_url'])
+    messages.success(request, 'Google Meet link updated.')
+    return redirect('item_detail', pk=pk)
 
 
 @login_required
