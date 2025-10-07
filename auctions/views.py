@@ -88,10 +88,17 @@ def item_detail(request: HttpRequest, pk: int) -> HttpResponse:
     participant = None
     if request.user.is_authenticated:
         participant = AuctionParticipant.objects.filter(item=item, user=request.user).first()
+    # Whether this user has verified their join code for this item in the current session
+    verified_items = request.session.get('verified_items', []) if request.user.is_authenticated else []
+    try:
+        has_verified_code = int(item.pk) in {int(x) for x in verified_items}
+    except Exception:
+        has_verified_code = False
     return render(request, 'auctions/item_detail.html', {
         'item': item,
         'bids': bids,
         'participant': participant,
+        'has_verified_code': has_verified_code,
     })
 
 
@@ -207,7 +214,11 @@ def book_seat(request: HttpRequest, pk: int) -> HttpResponse:
     participant.is_booked = True
     participant.paid = True
     participant.paid_at = timezone.now()
-    participant.booking_code = _generate_code()
+    # Ensure code uniqueness within this item
+    code = _generate_code()
+    while AuctionParticipant.objects.filter(item=item, booking_code=code).exists():
+        code = _generate_code()
+    participant.booking_code = code
     participant.save()
     messages.success(request, f'Seat booked successfully. Your code: {participant.booking_code}')
     return redirect('item_detail', pk=pk)
@@ -235,21 +246,31 @@ def unbook_seat(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect('item_detail', pk=pk)
 
 
+@login_required
 def join_with_code(request: HttpRequest) -> HttpResponse:
     if request.method != 'POST':
         return redirect('home')
     code = request.POST.get('code', '').strip().upper()
     item_id = request.POST.get('item_id')
     item = get_object_or_404(AuctionItem, pk=item_id)
-    participant = AuctionParticipant.objects.filter(item=item, booking_code=code).first()
+    # The code must belong to the logged-in user's participant record for this item
+    participant = AuctionParticipant.objects.filter(item=item, user=request.user, booking_code=code).first()
     if not participant:
-        messages.error(request, 'Invalid code.')
+        messages.error(request, 'Invalid code for your account.')
         return redirect('item_detail', pk=item.pk)
     # Re-activate booking if previously unbooked
     participant.is_booked = True
     participant.unbooked_at = None
-    participant.save()
-    messages.success(request, 'Joined with booking code.')
+    participant.save(update_fields=['is_booked', 'unbooked_at'])
+    # Mark this item as verified in the current session
+    try:
+        verified_items = {int(x) for x in request.session.get('verified_items', [])}
+    except Exception:
+        verified_items = set()
+    verified_items.add(int(item.pk))
+    request.session['verified_items'] = list(verified_items)
+    request.session.modified = True
+    messages.success(request, 'Code verified. You can join the video call now.')
     return redirect('item_detail', pk=item.pk)
 
 
@@ -284,8 +305,9 @@ def call_room(request: HttpRequest, pk: int) -> HttpResponse:
         messages.info(request, 'Call has not started yet.')
         return redirect('item_detail', pk=pk)
 
-    # Seller can always join; others must have a booked seat
-    if item.owner_id != request.user.id:
+    # Seller can always join; others must have booked seat AND verified code in this session
+    is_owner = (item.owner_id == request.user.id)
+    if not is_owner:
         participant = AuctionParticipant.objects.filter(
             item=item,
             user=request.user,
@@ -295,8 +317,14 @@ def call_room(request: HttpRequest, pk: int) -> HttpResponse:
         if not participant:
             messages.error(request, 'Only seat-booked users can join the call.')
             return redirect('item_detail', pk=pk)
-
-    return render(request, 'auctions/call.html', { 'item': item })
+        try:
+            verified_items = {int(x) for x in request.session.get('verified_items', [])}
+        except Exception:
+            verified_items = set()
+        if int(item.pk) not in verified_items:
+            messages.error(request, 'Enter your booking code to join the call.')
+            return redirect('item_detail', pk=pk)
+    return render(request, 'auctions/call.html', { 'item': item, 'is_owner': is_owner })
 
 
 @login_required

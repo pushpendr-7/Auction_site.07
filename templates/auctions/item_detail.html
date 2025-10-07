@@ -82,17 +82,23 @@
   {% csrf_token %}
   <input type="hidden" name="item_id" value="{{ item.pk }}">
   <div class="col-auto"><input type="text" name="code" class="form-control" placeholder="CODE" required></div>
-  <div class="col-auto"><button class="btn btn-outline-primary btn-sm">Join</button></div>
+  <div class="col-auto"><button class="btn btn-outline-primary btn-sm">Verify Code</button></div>
+  {% if has_verified_code %}
+    <div class="col-12 small text-success">Code verified for this session.</div>
+  {% endif %}
+  {% if participant and participant.is_booked and not participant.unbooked_at and not has_verified_code %}
+    <div class="col-12 small text-muted">Enter your unique code to enable call join.</div>
+  {% endif %}
 </form>
 
 {% if user.is_authenticated and item.call_started_at %}
 <div class="mt-3">
   {% if item.owner_id == user.id %}
     <a href="/items/{{ item.pk }}/call/" class="btn btn-outline-light btn-sm">Enter Call Room</a>
-  {% elif participant and participant.is_booked and not participant.unbooked_at %}
+  {% elif participant and participant.is_booked and not participant.unbooked_at and has_verified_code %}
     <a href="/items/{{ item.pk }}/call/" class="btn btn-outline-light btn-sm">Join Video Call</a>
   {% else %}
-    <div class="alert alert-info py-2">Seat booking required to join the call.</div>
+    <div class="alert alert-info py-2">Seat booking and code verification required to join the call.</div>
   {% endif %}
   <p class="text-muted small mt-2">Only the seller can start the call. Booked users can join.</p>
   </div>

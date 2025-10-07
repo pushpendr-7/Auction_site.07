@@ -13,7 +13,12 @@
       <div class="card-body">
         <p class="small text-muted">This is a placeholder call room. Integrate a provider (e.g., LiveKit, Twilio, Jitsi) for real video.</p>
         <div class="d-flex gap-2">
-          <button id="startBtn" class="btn btn-outline-light btn-sm">Start Camera</button>
+          {% if is_owner %}
+            <button id="startBtn" class="btn btn-outline-light btn-sm">Start Camera</button>
+          {% else %}
+            <button id="startBtn" class="btn btn-outline-light btn-sm" disabled title="Only seller can enable camera">Start Camera</button>
+          {% endif %}
+          <button id="micBtn" class="btn btn-outline-light btn-sm" disabled>Mic: Off</button>
           <a href="/items/{{ item.pk }}/" class="btn btn-outline-secondary btn-sm">Back to Item</a>
         </div>
       </div>
@@ -24,10 +29,29 @@
 (async function(){
   const startBtn = document.getElementById('startBtn');
   const localVideo = document.getElementById('localVideo');
+  const micBtn = document.getElementById('micBtn');
   async function startCam(){
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const constraints = { video: true, audio: true };
+      // Only owner can publish camera; others receive-only in placeholder
+      {% if not is_owner %}
+      constraints.video = false;
+      {% endif %}
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       localVideo.srcObject = stream;
+      // Enable mic toggle
+      micBtn.disabled = false;
+      let micEnabled = true;
+      function updateMic(){
+        const tracks = stream.getAudioTracks();
+        tracks.forEach(t => t.enabled = micEnabled);
+        micBtn.textContent = `Mic: ${micEnabled ? 'On' : 'Off'}`;
+      }
+      updateMic();
+      micBtn.addEventListener('click', () => {
+        micEnabled = !micEnabled;
+        updateMic();
+      });
     } catch (e) {
       alert('Camera/mic permission denied.');
     }
