@@ -1,16 +1,17 @@
 from decimal import Decimal
 import random
 import string
+import secrets
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django import forms
 
-from .models import AuctionItem, Bid, Payment, AuctionParticipant, Order
+from .models import AuctionItem, Bid, Payment, AuctionParticipant, Order, UserProfile
 from .utils import append_ledger_block
 
 
@@ -30,6 +31,27 @@ class AuctionItemForm(forms.ModelForm):
         ]
 
 
+class RegistrationForm(UserCreationForm):
+    email = forms.EmailField(required=True)
+    phone = forms.CharField(required=True, max_length=20)
+    location = forms.CharField(required=True, max_length=120)
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.email = self.cleaned_data["email"]
+        if commit:
+            user.save()
+        # Ensure profile exists and populate
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+        profile.phone = self.cleaned_data["phone"]
+        profile.location = self.cleaned_data["location"]
+        # Generate OTP and email token
+        profile.phone_otp_code = ''.join(random.choices(string.digits, k=6))
+        profile.email_verify_token = secrets.token_hex(16)
+        profile.save()
+        return user
+
+
 def home(request: HttpRequest) -> HttpResponse:
     # Show all items on the home page
     items = AuctionItem.objects.all().order_by('-ends_at')
@@ -38,14 +60,14 @@ def home(request: HttpRequest) -> HttpResponse:
 
 def register_view(request: HttpRequest) -> HttpResponse:
     if request.method == 'POST':
-        form = UserCreationForm(request.POST)
+        form = RegistrationForm(request.POST)
         if form.is_valid():
             user = form.save()
             login(request, user)
-            messages.success(request, 'Registration successful!')
-            return redirect('home')
+            messages.success(request, 'Account created. Verify your phone and email.')
+            return redirect('verify')
     else:
-        form = UserCreationForm()
+        form = RegistrationForm()
     return render(request, 'auctions/register.html', {'form': form})
 
 
@@ -105,6 +127,9 @@ def item_detail(request: HttpRequest, pk: int) -> HttpResponse:
 @login_required
 def place_bid(request: HttpRequest, pk: int) -> HttpResponse:
     item = get_object_or_404(AuctionItem, pk=pk)
+    if item.owner_id == request.user.id:
+        messages.error(request, 'Owners cannot bid on their own items.')
+        return redirect('item_detail', pk=pk)
     if not item.can_accept_bids():
         messages.error(request, 'Bidding is closed for this item.')
         return redirect('item_detail', pk=pk)
@@ -188,6 +213,9 @@ def _generate_code(length: int = 8) -> str:
 @login_required
 def book_seat(request: HttpRequest, pk: int) -> HttpResponse:
     item = get_object_or_404(AuctionItem, pk=pk)
+    if item.owner_id == request.user.id:
+        messages.error(request, 'Owners cannot book seats for their own items.')
+        return redirect('item_detail', pk=pk)
     participant, _ = AuctionParticipant.objects.get_or_create(item=item, user=request.user)
     if participant.is_booked:
         messages.info(request, 'Seat already booked. Your code is available below.')
@@ -325,6 +353,79 @@ def call_room(request: HttpRequest, pk: int) -> HttpResponse:
             messages.error(request, 'Enter your booking code to join the call.')
             return redirect('item_detail', pk=pk)
     return render(request, 'auctions/call.html', { 'item': item, 'is_owner': is_owner })
+
+
+@login_required
+def call_activity(request: HttpRequest, pk: int) -> JsonResponse:
+    item = get_object_or_404(AuctionItem, pk=pk)
+    is_owner = (item.owner_id == request.user.id)
+    if not is_owner:
+        participant = AuctionParticipant.objects.filter(
+            item=item,
+            user=request.user,
+            is_booked=True,
+            unbooked_at__isnull=True,
+        ).first()
+        if not participant:
+            return JsonResponse({'error': 'forbidden'}, status=403)
+        try:
+            verified_items = {int(x) for x in request.session.get('verified_items', [])}
+        except Exception:
+            verified_items = set()
+        if int(item.pk) not in verified_items:
+            return JsonResponse({'error': 'forbidden'}, status=403)
+
+    participants = list(
+        AuctionParticipant.objects.filter(item=item, is_booked=True, unbooked_at__isnull=True)
+        .select_related('user')
+        .order_by('-last_seen_at')
+        .values('user__username', 'booking_code', 'last_seen_at', 'penalty_due')
+    )
+    bids = list(
+        item.bids.select_related('bidder').filter(is_active=True)
+        .order_by('-created_at')[:20]
+        .values('bidder__username', 'amount', 'created_at')
+    )
+    return JsonResponse({
+        'participants': participants,
+        'bids': bids,
+        'server_time': timezone.now().isoformat(),
+    })
+
+
+@login_required
+def verify(request: HttpRequest) -> HttpResponse:
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    # Handle email token via query param
+    token = request.GET.get('email_token')
+    if token and profile.email_verify_token and secrets.compare_digest(token, profile.email_verify_token):
+        profile.email_verified_at = timezone.now()
+        profile.email_verify_token = ''
+        profile.save(update_fields=['email_verified_at', 'email_verify_token'])
+        messages.success(request, 'Email verified successfully.')
+
+    if request.method == 'POST':
+        code = request.POST.get('otp', '').strip()
+        if profile.phone_otp_code and secrets.compare_digest(code, profile.phone_otp_code):
+            profile.phone_verified_at = timezone.now()
+            profile.phone_otp_code = ''
+            profile.save(update_fields=['phone_verified_at', 'phone_otp_code'])
+            messages.success(request, 'Phone number verified successfully.')
+        else:
+            messages.error(request, 'Invalid OTP. Please try again.')
+
+    return render(request, 'auctions/verify.html', {
+        'profile': profile,
+    })
+
+
+@login_required
+def resend_phone_otp(request: HttpRequest) -> HttpResponse:
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    profile.phone_otp_code = ''.join(random.choices(string.digits, k=6))
+    profile.save(update_fields=['phone_otp_code'])
+    messages.info(request, f"New OTP generated: {profile.phone_otp_code}")
+    return redirect('verify')
 
 
 @login_required

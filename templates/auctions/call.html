@@ -12,7 +12,10 @@
     <div class="card">
       <div class="card-body">
         <p class="small text-muted">Connected to video room. Participants join muted; seller can publish video.</p>
-        <div class="d-flex gap-2"><a href="/items/{{ item.pk }}/" class="btn btn-outline-secondary btn-sm">Back to Item</a></div>
+        <div class="d-flex gap-2 mb-2"><a href="/items/{{ item.pk }}/" class="btn btn-outline-secondary btn-sm">Back to Item</a></div>
+        <div id="activity" class="small" style="max-height: 50vh; overflow:auto;">
+          <div class="text-muted">Loading activity…</div>
+        </div>
       </div>
     </div>
   </div>
@@ -41,15 +44,48 @@
   try {
     // eslint-disable-next-line no-undef
     var api = new JitsiMeetExternalAPI(domain, options);
+    // Force participants to start muted and no video. Owner can unmute.
     if (!isOwner) {
       api.executeCommand('toggleAudio');
       api.executeCommand('toggleVideo');
+      api.on('audioAvailabilityChanged', function(e){ if(e.available) api.executeCommand('toggleAudio'); });
+      api.on('videoAvailabilityChanged', function(e){ if(e.available) api.executeCommand('toggleVideo'); });
     }
   } catch (err) {
     console.error('Failed to load video room', err);
     var c = document.getElementById('jitsiContainer');
     if (c) c.innerHTML = '<div class="text-center text-muted p-3">Unable to start video. Please check your network and try again.</div>';
   }
+})();
+
+// Poll for activity (participants and bids)
+(function(){
+  var el = document.getElementById('activity');
+  function render(data){
+    var html = '';
+    html += '<div class="fw-bold">Participants</div>';
+    if (data.participants && data.participants.length){
+      html += '<ul class="list-unstyled mb-2">' + data.participants.map(function(p){
+        return '<li>👤 ' + p['user__username'] + ' <span class="text-muted">' + (p.booking_code || '') + '</span>' + (p.penalty_due ? ' <span class="text-danger">penalty</span>' : '') + '</li>';
+      }).join('') + '</ul>';
+    } else {
+      html += '<div class="text-muted">No participants.</div>';
+    }
+    html += '<div class="fw-bold mt-2">Recent bids</div>';
+    if (data.bids && data.bids.length){
+      html += '<ul class="list-unstyled">' + data.bids.map(function(b){
+        return '<li>₹ ' + b.amount + ' by ' + b['bidder__username'] + '</li>';
+      }).join('') + '</ul>';
+    } else {
+      html += '<div class="text-muted">No bids.</div>';
+    }
+    el.innerHTML = html;
+  }
+  function tick(){
+    fetch('/items/{{ item.pk }}/call/activity/').then(function(r){ return r.json(); }).then(render).catch(function(){});
+  }
+  tick();
+  setInterval(tick, 5000);
 })();
 </script>
 {% endblock %}

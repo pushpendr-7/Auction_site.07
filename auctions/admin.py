@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import AuctionItem, Bid, Payment, LedgerBlock, AuctionParticipant, Order
+from .models import AuctionItem, Bid, Payment, LedgerBlock, AuctionParticipant, Order, UserProfile
 
 
 @admin.register(AuctionItem)
@@ -35,3 +35,8 @@ class AuctionParticipantAdmin(admin.ModelAdmin):
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     list_display = ("id", "item", "buyer", "amount", "status", "created_at", "paid_at")
+
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ("user", "phone", "location", "phone_verified_at", "email_verified_at")
