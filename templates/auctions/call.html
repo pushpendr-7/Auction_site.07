@@ -4,14 +4,23 @@
 <h1 class="h4 mb-3">Live Call: {{ item.title }}</h1>
 <div class="row g-3">
   <div class="col-md-8">
-    <div class="ratio ratio-16x9 bg-black border border-1">
-      <div id="jitsiContainer" class="w-100 h-100"></div>
+    <div class="ratio ratio-16x9 bg-black border border-1 d-flex align-items-center justify-content-center">
+      {% if item.meet_url %}
+        <div class="text-center p-3">
+          <div class="mb-3">
+            <a href="{{ item.meet_url }}" target="_blank" rel="noopener" class="btn btn-success">Open Google Meet</a>
+          </div>
+          <div class="text-muted small">The call opens in a new tab. Return here to follow activity.</div>
+        </div>
+      {% else %}
+        <div class="text-center text-muted p-3">Seller has not provided a Google Meet link yet.</div>
+      {% endif %}
     </div>
   </div>
   <div class="col-md-4">
     <div class="card">
       <div class="card-body">
-        <p class="small text-muted">Connected to video room. Participants join muted; seller can publish video.</p>
+        <p class="small text-muted">Join the Google Meet using the button. Keep this page open to see participants and bids update live.</p>
         <div class="d-flex gap-2 mb-2"><a href="/items/{{ item.pk }}/" class="btn btn-outline-secondary btn-sm">Back to Item</a></div>
         <div id="activity" class="small" style="max-height: 50vh; overflow:auto;">
           <div class="text-muted">Loading activity…</div>
@@ -20,42 +29,7 @@
     </div>
   </div>
 </div>
-<script src="https://meet.jit.si/external_api.js"></script>
 <script>
-(function(){
-  var domain = 'meet.jit.si';
-  var roomName = 'auction-item-{{ item.pk }}';
-  var userName = "{{ user.username|default:'Guest'|escapejs }}";
-  var isOwner = {% if is_owner %}true{% else %}false{% endif %};
-
-  var options = {
-    roomName: roomName,
-    parentNode: document.getElementById('jitsiContainer'),
-    width: '100%',
-    height: '100%',
-    userInfo: { displayName: userName },
-    configOverwrite: {
-      prejoinConfig: { enabled: false },
-      startWithAudioMuted: !isOwner,
-      startWithVideoMuted: !isOwner
-    }
-  };
-
-  try {
-    // eslint-disable-next-line no-undef
-    var api = new JitsiMeetExternalAPI(domain, options);
-    // Allow participants to use mic; keep their camera off. Seller controls video.
-    if (!isOwner) {
-      api.executeCommand('setVideoMute', true);
-      api.on('videoMuteStatusChanged', function(e){ if(!e.muted) api.executeCommand('setVideoMute', true); });
-    }
-  } catch (err) {
-    console.error('Failed to load video room', err);
-    var c = document.getElementById('jitsiContainer');
-    if (c) c.innerHTML = '<div class="text-center text-muted p-3">Unable to start video. Please check your network and try again.</div>';
-  }
-})();
-
 // Poll for activity (participants and bids)
 (function(){
   var el = document.getElementById('activity');
