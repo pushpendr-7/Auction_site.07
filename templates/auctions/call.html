@@ -4,59 +4,52 @@
 <h1 class="h4 mb-3">Live Call: {{ item.title }}</h1>
 <div class="row g-3">
   <div class="col-md-8">
-    <div class="ratio ratio-16x9 bg-black d-flex align-items-center justify-content-center border border-1">
-      <video id="localVideo" autoplay playsinline muted class="w-100 h-100"></video>
+    <div class="ratio ratio-16x9 bg-black border border-1">
+      <div id="jitsiContainer" class="w-100 h-100"></div>
     </div>
   </div>
   <div class="col-md-4">
     <div class="card">
       <div class="card-body">
-        <p class="small text-muted">This is a placeholder call room. Integrate a provider (e.g., LiveKit, Twilio, Jitsi) for real video.</p>
-        <div class="d-flex gap-2">
-          {% if is_owner %}
-            <button id="startBtn" class="btn btn-outline-light btn-sm">Start Camera</button>
-          {% else %}
-            <button id="startBtn" class="btn btn-outline-light btn-sm" disabled title="Only seller can enable camera">Start Camera</button>
-          {% endif %}
-          <button id="micBtn" class="btn btn-outline-light btn-sm" disabled>Mic: Off</button>
-          <a href="/items/{{ item.pk }}/" class="btn btn-outline-secondary btn-sm">Back to Item</a>
-        </div>
+        <p class="small text-muted">Connected to video room. Participants join muted; seller can publish video.</p>
+        <div class="d-flex gap-2"><a href="/items/{{ item.pk }}/" class="btn btn-outline-secondary btn-sm">Back to Item</a></div>
       </div>
     </div>
   </div>
 </div>
+<script src="https://meet.jit.si/external_api.js"></script>
 <script>
-(async function(){
-  const startBtn = document.getElementById('startBtn');
-  const localVideo = document.getElementById('localVideo');
-  const micBtn = document.getElementById('micBtn');
-  async function startCam(){
-    try {
-      const constraints = { video: true, audio: true };
-      // Only owner can publish camera; others receive-only in placeholder
-      {% if not is_owner %}
-      constraints.video = false;
-      {% endif %}
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      localVideo.srcObject = stream;
-      // Enable mic toggle
-      micBtn.disabled = false;
-      let micEnabled = true;
-      function updateMic(){
-        const tracks = stream.getAudioTracks();
-        tracks.forEach(t => t.enabled = micEnabled);
-        micBtn.textContent = `Mic: ${micEnabled ? 'On' : 'Off'}`;
-      }
-      updateMic();
-      micBtn.addEventListener('click', () => {
-        micEnabled = !micEnabled;
-        updateMic();
-      });
-    } catch (e) {
-      alert('Camera/mic permission denied.');
+(function(){
+  var domain = 'meet.jit.si';
+  var roomName = 'auction-item-{{ item.pk }}';
+  var userName = "{{ user.username|default:'Guest'|escapejs }}";
+  var isOwner = {% if is_owner %}true{% else %}false{% endif %};
+
+  var options = {
+    roomName: roomName,
+    parentNode: document.getElementById('jitsiContainer'),
+    width: '100%',
+    height: '100%',
+    userInfo: { displayName: userName },
+    configOverwrite: {
+      prejoinConfig: { enabled: false },
+      startWithAudioMuted: !isOwner,
+      startWithVideoMuted: !isOwner
     }
+  };
+
+  try {
+    // eslint-disable-next-line no-undef
+    var api = new JitsiMeetExternalAPI(domain, options);
+    if (!isOwner) {
+      api.executeCommand('toggleAudio');
+      api.executeCommand('toggleVideo');
+    }
+  } catch (err) {
+    console.error('Failed to load video room', err);
+    var c = document.getElementById('jitsiContainer');
+    if (c) c.innerHTML = '<div class="text-center text-muted p-3">Unable to start video. Please check your network and try again.</div>';
   }
-  startBtn.addEventListener('click', startCam);
 })();
 </script>
 {% endblock %}
