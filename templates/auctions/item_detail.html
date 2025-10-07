@@ -72,7 +72,7 @@
   {% for bid in bids %}
     <li class="list-group-item d-flex justify-content-between">
       <span>{{ bid.bidder.username }}</span>
-      <span>{{ bid.amount }}</span>
+      <span>{{ bid.amount }}{% if not bid.is_active %} <span class="text-muted">(inactive)</span>{% endif %}</span>
       <span class="text-muted">{{ bid.created_at }}</span>
     </li>
   {% empty %}

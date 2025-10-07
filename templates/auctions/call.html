@@ -44,12 +44,10 @@
   try {
     // eslint-disable-next-line no-undef
     var api = new JitsiMeetExternalAPI(domain, options);
-    // Force participants to start muted and no video. Owner can unmute.
+    // Allow participants to use mic; keep their camera off. Seller controls video.
     if (!isOwner) {
-      api.executeCommand('toggleAudio');
-      api.executeCommand('toggleVideo');
-      api.on('audioAvailabilityChanged', function(e){ if(e.available) api.executeCommand('toggleAudio'); });
-      api.on('videoAvailabilityChanged', function(e){ if(e.available) api.executeCommand('toggleVideo'); });
+      api.executeCommand('setVideoMute', true);
+      api.on('videoMuteStatusChanged', function(e){ if(!e.muted) api.executeCommand('setVideoMute', true); });
     }
   } catch (err) {
     console.error('Failed to load video room', err);
@@ -74,7 +72,8 @@
     html += '<div class="fw-bold mt-2">Recent bids</div>';
     if (data.bids && data.bids.length){
       html += '<ul class="list-unstyled">' + data.bids.map(function(b){
-        return '<li>₹ ' + b.amount + ' by ' + b['bidder__username'] + '</li>';
+        var status = b.is_active ? '' : ' <span class="text-muted">(inactive)</span>';
+        return '<li>₹ ' + b.amount + ' by ' + b['bidder__username'] + status + '</li>';
       }).join('') + '</ul>';
     } else {
       html += '<div class="text-muted">No bids.</div>';
@@ -86,6 +85,13 @@
   }
   tick();
   setInterval(tick, 5000);
+})();
+
+// Presence ping from call room to avoid incorrect offline penalties
+(function(){
+  setInterval(function(){
+    fetch('/items/{{ item.pk }}/presence/');
+  }, 10000);
 })();
 </script>
 {% endblock %}
