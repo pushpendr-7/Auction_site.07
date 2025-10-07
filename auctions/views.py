@@ -400,3 +400,15 @@ def settle(request: HttpRequest, pk: int) -> HttpResponse:
     messages.success(request, 'Winner charged automatically and order created.')
     return redirect('item_detail', pk=pk)
 
+
+@login_required
+def history(request: HttpRequest) -> HttpResponse:
+    """Show the authenticated user's activity history."""
+    orders = Order.objects.filter(buyer=request.user).order_by('-created_at')
+    payments = Payment.objects.filter(buyer=request.user).order_by('-created_at')
+    bids = Bid.objects.filter(bidder=request.user).select_related('item').order_by('-created_at')
+    return render(request, 'auctions/history.html', {
+        'orders': orders,
+        'payments': payments,
+        'bids': bids,
+    })

@@ -1,0 +1,41 @@
+{% extends 'auctions/base.html' %}
+{% block title %}History{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">Your History</h1>
+
+<h2 class="h6 mt-4">Bids</h2>
+<ul class="list-group mb-3">
+  {% for bid in bids %}
+  <li class="list-group-item d-flex justify-content-between align-items-center">
+    <span>{{ bid.item.title }} — ₹{{ bid.amount }} <small class="text-muted">on {{ bid.created_at|date:"M d, Y H:i" }}</small></span>
+    <a class="btn btn-sm btn-outline-primary" href="{% url 'item_detail' bid.item_id %}">View</a>
+  </li>
+  {% empty %}
+  <li class="list-group-item">No bids yet.</li>
+  {% endfor %}
+</ul>
+
+<h2 class="h6 mt-4">Payments</h2>
+<ul class="list-group mb-3">
+  {% for p in payments %}
+  <li class="list-group-item">
+    ₹{{ p.amount }} — {{ p.purpose|title }} — <span class="badge text-bg-secondary">{{ p.status }}</span>
+    <small class="text-muted ms-2">{{ p.created_at|date:"M d, Y H:i" }}</small>
+  </li>
+  {% empty %}
+  <li class="list-group-item">No payments yet.</li>
+  {% endfor %}
+</ul>
+
+<h2 class="h6 mt-4">Orders</h2>
+<ul class="list-group">
+  {% for o in orders %}
+  <li class="list-group-item d-flex justify-content-between align-items-center">
+    <span>{{ o.item.title }} — ₹{{ o.amount }} <span class="badge text-bg-info">{{ o.status }}</span></span>
+    <a class="btn btn-sm btn-outline-primary" href="{% url 'item_detail' o.item_id %}">Item</a>
+  </li>
+  {% empty %}
+  <li class="list-group-item">No orders yet.</li>
+  {% endfor %}
+</ul>
+{% endblock %}
