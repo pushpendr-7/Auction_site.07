@@ -18,6 +18,8 @@ class AuctionItem(models.Model):
     is_active = models.BooleanField(default=True)
     seat_limit = models.PositiveIntegerField(default=0, help_text='Max seats available to bid')
     is_settled = models.BooleanField(default=False)
+    # When the seller starts a live video call for this item
+    call_started_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self) -> str:
         return f"{self.title} (#{self.pk})"
