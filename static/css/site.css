@@ -1,5 +1,5 @@
 /* Black & White theme only */
-:root{
+.root, :root{
   --bg:#000;        /* black */
   --fg:#fff;        /* white */
   --muted:#bbb;     /* light gray for subtle text */
@@ -13,6 +13,9 @@ body{ background:var(--bg); color:var(--fg); }
 .card .card-title{ color:var(--fg); }
 .card .card-text{ color:var(--muted); }
 .alert{ border:1px solid var(--border); color:var(--fg); background:transparent; }
+.list-group-item{ background:var(--surface); color:var(--fg); border-color:var(--border); }
+.form-label{ color:var(--fg); }
+.navbar .navbar-brand, .navbar .nav-link, .navbar .navbar-text { color:var(--fg) !important; }
 .form-control{ background:#000; color:var(--fg); border:1px solid var(--border); }
 .form-control::placeholder{ color:#777; }
 
