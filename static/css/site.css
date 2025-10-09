@@ -1,15 +1,15 @@
-/* Black & White theme only */
+/* Black, White, Green, Red only */
 .root, :root{
-  --bg:#000;        /* black */
-  --fg:#fff;        /* white */
-  --muted:#bbb;     /* light gray for subtle text */
-  --surface:#0f0f0f;/* near-black cards */
-  --border:#222;    /* subtle borders */
+  --bg:#000;                         /* black */
+  --fg:#fff;                         /* white */
+  --muted:rgba(255,255,255,.7);      /* muted = white at 70% */
+  --surface:#000;                    /* surfaces stay black */
+  --border:rgba(255,255,255,.15);    /* subtle border = white at 15% */
   /* intent colors */
-  --success:#10b981;               /* green for success */
+  --success:#10b981;                 /* green for success */
   --success-border:rgba(16,185,129,.45);
   --success-bg:rgba(16,185,129,.15);
-  --danger:#ef4444;                /* red for danger */
+  --danger:#ef4444;                  /* red for danger */
   --danger-border:rgba(239,68,68,.45);
   --danger-bg:rgba(239,68,68,.15);
 }
@@ -23,39 +23,55 @@ body{ background:var(--bg); color:var(--fg); }
 /* intent-specific alerts */
 .alert-success{ color:var(--success); background:var(--success-bg); border-color:var(--success-border); }
 .alert-danger{ color:var(--danger); background:var(--danger-bg); border-color:var(--danger-border); }
+/* map bootstrap info/warning to allowed palette */
+.alert-info{ color:var(--fg); background:transparent; border-color:var(--border); }
+.alert-warning{ color:var(--danger); background:var(--danger-bg); border-color:var(--danger-border); }
 .list-group-item{ background:var(--surface); color:var(--fg); border-color:var(--border); }
 .form-label{ color:var(--fg); }
 .navbar .navbar-brand, .navbar .nav-link, .navbar .navbar-text { color:var(--fg) !important; }
 .form-control{ background:#000; color:var(--fg); border:1px solid var(--border); }
-.form-control::placeholder{ color:#777; }
+.form-control::placeholder{ color:rgba(255,255,255,.6); }
+
+/* Links */
+a{ color:var(--fg); text-decoration:underline; }
+a:hover{ color:var(--success); }
 
 /* Buttons: base minimal, with green/red for intent */
 .btn{ border:1px solid var(--border); color:var(--fg); background:transparent; }
-.btn:hover{ background:#111; color:var(--fg); }
-.btn-primary,.btn-outline-primary{ border-color:var(--border); color:var(--fg); background:transparent; }
-.btn-info,.btn-outline-info{ border-color:#444; color:#fff; background:transparent; }
-.btn-warning,.btn-outline-warning{ border-color:#555; color:#fff; background:transparent; }
+.btn:hover{ background:rgba(255,255,255,.06); color:var(--fg); }
+.btn-primary,.btn-outline-primary{ border-color:var(--fg); color:var(--fg); background:transparent; }
+.btn-primary:hover,.btn-outline-primary:hover{ background:var(--fg); color:#000; }
+.btn-info,.btn-outline-info{ border-color:var(--fg); color:var(--fg); background:transparent; }
+.btn-info:hover,.btn-outline-info:hover{ background:var(--fg); color:#000; }
+.btn-warning{ background:var(--danger); border-color:var(--danger); color:#000; }
+.btn-warning:hover{ background:var(--danger); border-color:var(--danger); color:#000; }
+.btn-outline-warning{ border-color:var(--danger); color:var(--danger); background:transparent; }
+.btn-outline-warning:hover{ background:var(--danger); border-color:var(--danger); color:#000; }
 
 /* success buttons */
 .btn-success{ background:var(--success); border-color:var(--success); color:#000; }
-.btn-success:hover{ background:#0ea371; border-color:#0ea371; color:#000; }
+.btn-success:hover{ background:var(--success); border-color:var(--success); color:#000; }
 .btn-outline-success{ border-color:var(--success); color:var(--success); background:transparent; }
 .btn-outline-success:hover{ background:var(--success); border-color:var(--success); color:#000; }
 
 /* danger buttons */
 .btn-danger{ background:var(--danger); border-color:var(--danger); color:#000; }
-.btn-danger:hover{ background:#dc2626; border-color:#dc2626; color:#000; }
+.btn-danger:hover{ background:var(--danger); border-color:var(--danger); color:#000; }
 .btn-outline-danger{ border-color:var(--danger); color:var(--danger); background:transparent; }
 .btn-outline-danger:hover{ background:var(--danger); border-color:var(--danger); color:#000; }
 
-.btn-outline-light{ border-color:#444; color:#fff; }
-.btn-outline-warning{ border-color:#555; color:#fff; }
-.btn-outline-secondary{ border-color:#444; color:#fff; }
+.btn-outline-light{ border-color:var(--fg); color:var(--fg); }
+.btn-outline-warning{ border-color:var(--danger); color:var(--danger); }
+.btn-outline-secondary{ border-color:var(--fg); color:var(--fg); }
 
 /* Utilities */
 .text-muted{ color:var(--muted) !important; }
 .text-success{ color:var(--success) !important; }
 .text-danger{ color:var(--danger) !important; }
+.text-warning{ color:var(--danger) !important; }
+.text-info{ color:var(--fg) !important; }
+.text-bg-info, .badge.text-bg-info{ background:#000 !important; color:var(--fg) !important; border:1px solid var(--border) !important; }
+.text-bg-secondary, .badge.text-bg-secondary{ background:#000 !important; color:var(--fg) !important; border:1px solid var(--border) !important; }
 .bg-black{ background:#000 !important; }
 
 /* Images: ensure they are visible and responsive */
