@@ -27,7 +27,7 @@ SECRET_KEY = 'django-insecure-zhq-wvp36s95d!rp+#qrk4l@2#ks$=m04628*a=pzp4u1_m^1$
 # Default to True for local dev; set DJANGO_DEBUG=false in production.
 DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() == "true"
 
-ALLOWED_HOSTS = ["*",'127.0.0.1', 'localhost']
+ALLOWED_HOSTS = ["*", '127.0.0.1', 'localhost']
 CSRF_TRUSTED_ORIGINS = [
     "https://*.onrender.com",
 ]
@@ -130,6 +130,13 @@ STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# Security and proxy headers for Render/HTTPS
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_SSL_REDIRECT = False  # Handled by platform; avoid redirect loops
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
