@@ -24,8 +24,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-zhq-wvp36s95d!rp+#qrk4l@2#ks$=m04628*a=pzp4u1_m^1$'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-# Default to True for local dev; set DJANGO_DEBUG=false in production.
-DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() == "true"
+# Default to False; enable locally with DJANGO_DEBUG=true
+DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
 
 ALLOWED_HOSTS = ["*", '127.0.0.1', 'localhost']
 CSRF_TRUSTED_ORIGINS = [
