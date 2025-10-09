@@ -145,3 +145,14 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Blockchain/Web3 configuration
+# Enable/disable blockchain payments and tune verification behavior
+BLOCKCHAIN_ENABLED = os.environ.get("BLOCKCHAIN_ENABLED", "true").lower() == "true"
+BLOCKCHAIN_NETWORK_NAME = os.environ.get("BLOCKCHAIN_NETWORK_NAME", "polygon")
+BLOCKCHAIN_CURRENCY = os.environ.get("BLOCKCHAIN_CURRENCY", "MATIC")
+BLOCKCHAIN_RPC_URL = os.environ.get("BLOCKCHAIN_RPC_URL", "https://polygon-rpc.com")
+BLOCKCHAIN_MERCHANT_ADDRESS = os.environ.get("BLOCKCHAIN_MERCHANT_ADDRESS", "")
+BLOCKCHAIN_MIN_CONFIRMATIONS = int(os.environ.get("BLOCKCHAIN_MIN_CONFIRMATIONS", "3"))
+# Naive price for quotes (local currency per 1 token); set via env in production
+BLOCKCHAIN_PRICE_INR_PER_TOKEN = os.environ.get("BLOCKCHAIN_PRICE_INR_PER_TOKEN", "100.0")

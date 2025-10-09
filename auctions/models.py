@@ -87,6 +87,15 @@ class Payment(models.Model):
     provider = models.CharField(max_length=50, default='google_pay')
     provider_ref = models.CharField(max_length=200, blank=True)
     status = models.CharField(max_length=30, default='pending')
+    # Blockchain fields
+    chain = models.CharField(max_length=30, blank=True)  # polygon, ethereum, etc.
+    token_symbol = models.CharField(max_length=20, blank=True)  # MATIC, ETH, USDT
+    onchain_amount_wei = models.CharField(max_length=80, blank=True)  # store as string
+    recipient_address = models.CharField(max_length=80, blank=True)
+    payer_address = models.CharField(max_length=80, blank=True)
+    tx_hash = models.CharField(max_length=100, blank=True)
+    confirmations = models.PositiveIntegerField(default=0)
+    onchain_status = models.CharField(max_length=30, blank=True)  # pending, confirmed, failed
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self) -> str:

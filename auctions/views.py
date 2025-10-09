@@ -14,6 +14,8 @@ from django import forms
 from .models import AuctionItem, Bid, Payment, AuctionParticipant, Order, UserProfile
 from urllib.parse import urlparse
 from .utils import append_ledger_block
+from django.conf import settings
+from .blockchain import inr_to_token_quote, validate_native_transfer
 
 
 class AuctionItemForm(forms.ModelForm):
@@ -181,8 +183,22 @@ def buy_now(request: HttpRequest, pk: int) -> HttpResponse:
     if item.buy_now_price is None:
         messages.error(request, 'Buy now is not available for this item.')
         return redirect('item_detail', pk=pk)
-    payment = Payment.objects.create(item=item, buyer=request.user, amount=item.buy_now_price)
-    return redirect('google_pay_start', pk=payment.pk)
+    if getattr(settings, 'BLOCKCHAIN_ENABLED', True):
+        payment = Payment.objects.create(
+            item=item,
+            buyer=request.user,
+            amount=item.buy_now_price,
+            purpose='buy_now',
+            provider='blockchain',
+            status='pending',
+            chain=getattr(settings, 'BLOCKCHAIN_NETWORK_NAME', 'polygon'),
+            token_symbol=getattr(settings, 'BLOCKCHAIN_CURRENCY', 'MATIC'),
+            recipient_address=getattr(settings, 'BLOCKCHAIN_MERCHANT_ADDRESS', ''),
+        )
+        return redirect('crypto_pay_start', pk=payment.pk)
+    else:
+        payment = Payment.objects.create(item=item, buyer=request.user, amount=item.buy_now_price)
+        return redirect('google_pay_start', pk=payment.pk)
 
 
 @login_required
@@ -235,29 +251,44 @@ def book_seat(request: HttpRequest, pk: int) -> HttpResponse:
         return redirect('item_detail', pk=pk)
 
     # Charge ₹5 seat booking
-    payment = Payment.objects.create(item=item, buyer=request.user, amount=Decimal('5.00'), purpose='seat', status='processing')
-    payment.provider_ref = f"SEAT-{payment.pk}"
-    payment.status = 'succeeded'
-    payment.save()
-    append_ledger_block({
-        'type': 'seat_booking',
-        'item_id': item.pk,
-        'user_id': request.user.pk,
-        'payment_id': payment.pk,
-        'amount': str(payment.amount),
-        'timestamp': timezone.now().isoformat(),
-    })
-    participant.is_booked = True
-    participant.paid = True
-    participant.paid_at = timezone.now()
-    # Ensure code uniqueness within this item
-    code = _generate_code()
-    while AuctionParticipant.objects.filter(item=item, booking_code=code).exists():
+    if getattr(settings, 'BLOCKCHAIN_ENABLED', True):
+        payment = Payment.objects.create(
+            item=item,
+            buyer=request.user,
+            amount=Decimal('5.00'),
+            purpose='seat',
+            status='pending',
+            provider='blockchain',
+            chain=getattr(settings, 'BLOCKCHAIN_NETWORK_NAME', 'polygon'),
+            token_symbol=getattr(settings, 'BLOCKCHAIN_CURRENCY', 'MATIC'),
+            recipient_address=getattr(settings, 'BLOCKCHAIN_MERCHANT_ADDRESS', ''),
+        )
+        return redirect('crypto_pay_start', pk=payment.pk)
+    else:
+        payment = Payment.objects.create(item=item, buyer=request.user, amount=Decimal('5.00'), purpose='seat', status='processing')
+        payment.provider_ref = f"SEAT-{payment.pk}"
+        payment.status = 'succeeded'
+        payment.save()
+        append_ledger_block({
+            'type': 'seat_booking',
+            'item_id': item.pk,
+            'user_id': request.user.pk,
+            'payment_id': payment.pk,
+            'amount': str(payment.amount),
+            'timestamp': timezone.now().isoformat(),
+        })
+        participant.is_booked = True
+        participant.paid = True
+        participant.paid_at = timezone.now()
+        # Ensure code uniqueness within this item
         code = _generate_code()
-    participant.booking_code = code
-    participant.save()
-    messages.success(request, f'Seat booked successfully. Your code: {participant.booking_code}')
-    return redirect('item_detail', pk=pk)
+        while AuctionParticipant.objects.filter(item=item, booking_code=code).exists():
+            code = _generate_code()
+        participant.booking_code = code
+        participant.save()
+        messages.success(request, f'Seat booked successfully. Your code: {participant.booking_code}')
+        return redirect('item_detail', pk=pk)
+
 
 
 @login_required
@@ -511,24 +542,147 @@ def pay_penalty(request: HttpRequest, pk: int) -> HttpResponse:
     if not participant.penalty_due:
         messages.info(request, 'No penalty due.')
         return redirect('item_detail', pk=pk)
-    payment = Payment.objects.filter(item=item, buyer=request.user, purpose='penalty', status__in=['pending', 'processing']).order_by('-created_at').first()
-    if not payment:
-        payment = Payment.objects.create(item=item, buyer=request.user, amount=Decimal('200.00'), purpose='penalty', status='processing')
-    payment.provider_ref = f"PEN-{payment.pk}"
-    payment.status = 'succeeded'
-    payment.save()
-    append_ledger_block({
-        'type': 'penalty_paid',
-        'item_id': item.pk,
-        'user_id': request.user.pk,
-        'payment_id': payment.pk,
-        'amount': str(payment.amount),
-        'timestamp': timezone.now().isoformat(),
+    if getattr(settings, 'BLOCKCHAIN_ENABLED', True):
+        payment = Payment.objects.filter(item=item, buyer=request.user, purpose='penalty', status__in=['pending', 'processing']).order_by('-created_at').first()
+        if not payment:
+            payment = Payment.objects.create(
+                item=item,
+                buyer=request.user,
+                amount=Decimal('200.00'),
+                purpose='penalty',
+                status='pending',
+                provider='blockchain',
+                chain=getattr(settings, 'BLOCKCHAIN_NETWORK_NAME', 'polygon'),
+                token_symbol=getattr(settings, 'BLOCKCHAIN_CURRENCY', 'MATIC'),
+                recipient_address=getattr(settings, 'BLOCKCHAIN_MERCHANT_ADDRESS', ''),
+            )
+        return redirect('crypto_pay_start', pk=payment.pk)
+    else:
+        payment = Payment.objects.filter(item=item, buyer=request.user, purpose='penalty', status__in=['pending', 'processing']).order_by('-created_at').first()
+        if not payment:
+            payment = Payment.objects.create(item=item, buyer=request.user, amount=Decimal('200.00'), purpose='penalty', status='processing')
+        payment.provider_ref = f"PEN-{payment.pk}"
+        payment.status = 'succeeded'
+        payment.save()
+        append_ledger_block({
+            'type': 'penalty_paid',
+            'item_id': item.pk,
+            'user_id': request.user.pk,
+            'payment_id': payment.pk,
+            'amount': str(payment.amount),
+            'timestamp': timezone.now().isoformat(),
+        })
+        participant.penalty_due = False
+        participant.save(update_fields=['penalty_due'])
+        messages.success(request, 'Penalty paid. You can continue bidding.')
+        return redirect('item_detail', pk=pk)
+
+@login_required
+def crypto_pay_start(request: HttpRequest, pk: int) -> HttpResponse:
+    payment = get_object_or_404(Payment, pk=pk, buyer=request.user)
+    if payment.provider != 'blockchain':
+        return redirect('google_pay_start', pk=pk)
+    if not getattr(settings, 'BLOCKCHAIN_ENABLED', True):
+        messages.error(request, 'Blockchain payments disabled.')
+        return redirect('item_detail', pk=payment.item_id)
+    quote = inr_to_token_quote(Decimal(payment.amount))
+    payment.onchain_amount_wei = str(quote.wei_amount)
+    payment.token_symbol = quote.token_symbol
+    payment.chain = getattr(settings, 'BLOCKCHAIN_NETWORK_NAME', 'polygon')
+    payment.onchain_status = 'pending'
+    payment.save(update_fields=['onchain_amount_wei', 'token_symbol', 'chain', 'onchain_status'])
+    return render(request, 'auctions/crypto_pay.html', {
+        'payment': payment,
+        'quote': quote,
+        'merchant_address': getattr(settings, 'BLOCKCHAIN_MERCHANT_ADDRESS', ''),
+        'network_name': getattr(settings, 'BLOCKCHAIN_NETWORK_NAME', 'polygon'),
+        'min_confirmations': int(getattr(settings, 'BLOCKCHAIN_MIN_CONFIRMATIONS', 3)),
     })
-    participant.penalty_due = False
-    participant.save(update_fields=['penalty_due'])
-    messages.success(request, 'Penalty paid. You can continue bidding.')
-    return redirect('item_detail', pk=pk)
+
+
+@login_required
+def crypto_pay_confirm(request: HttpRequest, pk: int) -> HttpResponse:
+    payment = get_object_or_404(Payment, pk=pk, buyer=request.user)
+    if payment.provider != 'blockchain':
+        return redirect('item_detail', pk=payment.item_id)
+    tx_hash = (request.POST.get('tx_hash') or '').strip()
+    payer_address = (request.POST.get('from_address') or '').strip()
+    if not tx_hash:
+        messages.error(request, 'Transaction hash is required.')
+        return redirect('crypto_pay_start', pk=pk)
+    expected_to = payment.recipient_address or getattr(settings, 'BLOCKCHAIN_MERCHANT_ADDRESS', '')
+    expected_wei = int(payment.onchain_amount_wei or '0')
+    result = validate_native_transfer(tx_hash, expected_to, expected_wei)
+    payment.tx_hash = tx_hash
+    payment.payer_address = payer_address
+    payment.confirmations = int(result.get('confirmations', 0))
+    payment.onchain_status = 'confirmed' if result.get('ok') else 'pending'
+    if result.get('ok'):
+        payment.status = 'succeeded' if result.get('confirmed') else 'processing'
+    payment.save(update_fields=['tx_hash', 'payer_address', 'confirmations', 'onchain_status', 'status'])
+
+    if result.get('ok'):
+        # Post-payment effects
+        if payment.purpose == 'seat':
+            participant = AuctionParticipant.objects.get(item=payment.item, user=request.user)
+            participant.is_booked = True
+            participant.paid = True
+            participant.paid_at = timezone.now()
+            code = _generate_code()
+            while AuctionParticipant.objects.filter(item=payment.item, booking_code=code).exists():
+                code = _generate_code()
+            participant.booking_code = code
+            participant.save()
+            append_ledger_block({
+                'type': 'seat_booking',
+                'item_id': payment.item_id,
+                'user_id': request.user.pk,
+                'payment_id': payment.pk,
+                'amount': str(payment.amount),
+                'tx_hash': payment.tx_hash,
+                'timestamp': timezone.now().isoformat(),
+            })
+            messages.success(request, f'Seat booked. Your code: {participant.booking_code}')
+            return redirect('item_detail', pk=payment.item_id)
+        elif payment.purpose == 'penalty':
+            participant = AuctionParticipant.objects.get(item=payment.item, user=request.user)
+            participant.penalty_due = False
+            participant.save(update_fields=['penalty_due'])
+            append_ledger_block({
+                'type': 'penalty_paid',
+                'item_id': payment.item_id,
+                'user_id': request.user.pk,
+                'payment_id': payment.pk,
+                'amount': str(payment.amount),
+                'tx_hash': payment.tx_hash,
+                'timestamp': timezone.now().isoformat(),
+            })
+            messages.success(request, 'Penalty paid. You can continue bidding.')
+            return redirect('item_detail', pk=payment.item_id)
+        elif payment.purpose in ('order', 'buy_now'):
+            Order.objects.update_or_create(
+                item=payment.item,
+                buyer=request.user,
+                defaults={
+                    'amount': payment.amount,
+                    'status': 'paid',
+                    'paid_at': timezone.now(),
+                }
+            )
+            append_ledger_block({
+                'type': 'order_paid',
+                'item_id': payment.item_id,
+                'buyer_id': request.user.pk,
+                'payment_id': payment.pk,
+                'amount': str(payment.amount),
+                'tx_hash': payment.tx_hash,
+                'timestamp': timezone.now().isoformat(),
+            })
+            messages.success(request, 'Payment successful!')
+            return redirect('item_detail', pk=payment.item_id)
+    else:
+        messages.info(request, 'Waiting for confirmations. Please refresh later.')
+        return redirect('crypto_pay_start', pk=pk)
 
 
 @login_required
