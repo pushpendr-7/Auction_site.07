@@ -141,10 +141,15 @@ class UserProfile(models.Model):
     email_verified_at = models.DateTimeField(null=True, blank=True)
     email_verify_token = models.CharField(max_length=64, blank=True)
     # Payment method details (optional; used for Google Pay/Bank flows)
-    upi_vpa = models.CharField(max_length=120, blank=True, help_text='Your UPI ID (e.g., name@bank)')
-    bank_holder_name = models.CharField(max_length=120, blank=True)
-    bank_account_number = models.CharField(max_length=34, blank=True)
-    bank_ifsc = models.CharField(max_length=20, blank=True)
+    upi_vpa = models.CharField(
+        max_length=120,
+        blank=True,
+        default='',
+        help_text='Your UPI ID (e.g., name@bank)'
+    )
+    bank_holder_name = models.CharField(max_length=120, blank=True, default='')
+    bank_account_number = models.CharField(max_length=34, blank=True, default='')
+    bank_ifsc = models.CharField(max_length=20, blank=True, default='')
 
     def __str__(self) -> str:
         return f"Profile for {self.user_id}"
