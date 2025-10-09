@@ -33,6 +33,8 @@ body{ background:var(--bg); color:var(--fg); }
 .btn{ border:1px solid var(--border); color:var(--fg); background:transparent; }
 .btn:hover{ background:#111; color:var(--fg); }
 .btn-primary,.btn-outline-primary{ border-color:var(--border); color:var(--fg); background:transparent; }
+.btn-info,.btn-outline-info{ border-color:#444; color:#fff; background:transparent; }
+.btn-warning,.btn-outline-warning{ border-color:#555; color:#fff; background:transparent; }
 
 /* success buttons */
 .btn-success{ background:var(--success); border-color:var(--success); color:#000; }
@@ -55,3 +57,7 @@ body{ background:var(--bg); color:var(--fg); }
 .text-success{ color:var(--success) !important; }
 .text-danger{ color:var(--danger) !important; }
 .bg-black{ background:#000 !important; }
+
+/* Images: ensure they are visible and responsive */
+img{ max-width:100%; height:auto; display:block; }
+.card-img-top{ width:100%; height:auto; }

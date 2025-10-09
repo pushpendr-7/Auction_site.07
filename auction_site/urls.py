@@ -24,5 +24,5 @@ urlpatterns = [
     path('', include('auctions.urls')),
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Serve uploaded media files (ensure images display)
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
