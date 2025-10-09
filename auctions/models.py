@@ -140,6 +140,66 @@ class UserProfile(models.Model):
     phone_verified_at = models.DateTimeField(null=True, blank=True)
     email_verified_at = models.DateTimeField(null=True, blank=True)
     email_verify_token = models.CharField(max_length=64, blank=True)
+    # Payment method details (optional; used for Google Pay/Bank flows)
+    upi_vpa = models.CharField(max_length=120, blank=True, help_text='Your UPI ID (e.g., name@bank)')
+    bank_holder_name = models.CharField(max_length=120, blank=True)
+    bank_account_number = models.CharField(max_length=34, blank=True)
+    bank_ifsc = models.CharField(max_length=20, blank=True)
 
     def __str__(self) -> str:
         return f"Profile for {self.user_id}"
+
+
+class Wallet(models.Model):
+    """Simple user wallet with INR balance.
+    Funds are added via payments (Google Pay/Bank/Crypto) and deducted on settlement.
+    """
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='wallet')
+    balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"Wallet({self.user_id}) ₹{self.balance}"
+
+
+class WalletTransaction(models.Model):
+    KIND_CHOICES = (
+        ('credit', 'Credit'),
+        ('debit', 'Debit'),
+        ('hold_reserve', 'Hold Reserve'),
+        ('hold_release', 'Hold Release'),
+        ('hold_consume', 'Hold Consume'),
+    )
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='wallet_transactions')
+    item = models.ForeignKey('AuctionItem', on_delete=models.SET_NULL, null=True, blank=True, related_name='wallet_transactions')
+    payment = models.ForeignKey('Payment', on_delete=models.SET_NULL, null=True, blank=True, related_name='wallet_transactions')
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    balance_after = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self) -> str:
+        return f"{self.kind} ₹{self.amount} (user {self.user_id})"
+
+
+class WalletHold(models.Model):
+    STATUS_CHOICES = (
+        ('active', 'Active'),
+        ('released', 'Released'),
+        ('consumed', 'Consumed'),
+    )
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='wallet_holds')
+    item = models.ForeignKey('AuctionItem', on_delete=models.CASCADE, related_name='wallet_holds')
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self) -> str:
+        return f"Hold ₹{self.amount} on item {self.item_id} ({self.status})"
