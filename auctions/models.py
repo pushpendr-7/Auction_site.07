@@ -64,6 +64,7 @@ class AuctionParticipant(models.Model):
     joined_at = models.DateTimeField(auto_now_add=True)
     is_booked = models.BooleanField(default=False)
     booking_code = models.CharField(max_length=12, blank=True)
+    code_verified_at = models.DateTimeField(null=True, blank=True)
     paid = models.BooleanField(default=False)
     paid_at = models.DateTimeField(null=True, blank=True)
     preview_started_at = models.DateTimeField(null=True, blank=True)

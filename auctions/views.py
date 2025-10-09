@@ -119,12 +119,11 @@ def item_detail(request: HttpRequest, pk: int) -> HttpResponse:
     participant = None
     if request.user.is_authenticated:
         participant = AuctionParticipant.objects.filter(item=item, user=request.user).first()
-    # Whether this user has verified their join code for this item in the current session
-    verified_items = request.session.get('verified_items', []) if request.user.is_authenticated else []
-    try:
-        has_verified_code = int(item.pk) in {int(x) for x in verified_items}
-    except Exception:
-        has_verified_code = False
+    # Whether this user has verified their join code for this item (persisted)
+    has_verified_code = False
+    if request.user.is_authenticated:
+        ap = AuctionParticipant.objects.filter(item=item, user=request.user).only('code_verified_at').first()
+        has_verified_code = bool(ap and ap.code_verified_at)
     return render(request, 'auctions/item_detail.html', {
         'item': item,
         'bids': bids,
@@ -278,7 +277,8 @@ def unbook_seat(request: HttpRequest, pk: int) -> HttpResponse:
         return redirect('item_detail', pk=pk)
     participant.is_booked = False
     participant.unbooked_at = timezone.now()
-    participant.save()
+    participant.code_verified_at = None
+    participant.save(update_fields=['is_booked', 'unbooked_at', 'code_verified_at'])
     messages.success(request, 'Seat unbooked.')
     return redirect('item_detail', pk=pk)
 
@@ -299,14 +299,9 @@ def join_with_code(request: HttpRequest) -> HttpResponse:
     participant.is_booked = True
     participant.unbooked_at = None
     participant.save(update_fields=['is_booked', 'unbooked_at'])
-    # Mark this item as verified in the current session
-    try:
-        verified_items = {int(x) for x in request.session.get('verified_items', [])}
-    except Exception:
-        verified_items = set()
-    verified_items.add(int(item.pk))
-    request.session['verified_items'] = list(verified_items)
-    request.session.modified = True
+    # Persist verification on the participant record
+    participant.code_verified_at = timezone.now()
+    participant.save(update_fields=['code_verified_at'])
     messages.success(request, 'Code verified. You can join the video call now.')
     return redirect('item_detail', pk=item.pk)
 
@@ -354,11 +349,8 @@ def call_room(request: HttpRequest, pk: int) -> HttpResponse:
         if not participant:
             messages.error(request, 'Only seat-booked users can join the call.')
             return redirect('item_detail', pk=pk)
-        try:
-            verified_items = {int(x) for x in request.session.get('verified_items', [])}
-        except Exception:
-            verified_items = set()
-        if int(item.pk) not in verified_items:
+        ap = AuctionParticipant.objects.filter(item=item, user=request.user).only('code_verified_at').first()
+        if not (ap and ap.code_verified_at):
             messages.error(request, 'Enter your booking code to join the call.')
             return redirect('item_detail', pk=pk)
     return render(request, 'auctions/call.html', { 'item': item, 'is_owner': is_owner })
