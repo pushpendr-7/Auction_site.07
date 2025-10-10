@@ -69,6 +69,12 @@
             <input type="text" name="bank_ifsc" class="form-control" value="{{ profile.bank_ifsc }}">
           </div>
           <div class="col-12">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="auto_debit_consent" id="autoDebit" {% if profile.auto_debit_consent %}checked{% endif %}>
+              <label class="form-check-label" for="autoDebit">
+                Allow automatic bank debit to settle winning bids
+              </label>
+            </div>
             <button class="btn btn-outline-primary">Save</button>
           </div>
         </form>

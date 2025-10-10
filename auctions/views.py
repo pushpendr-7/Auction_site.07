@@ -25,7 +25,7 @@ from .models import (
     WalletHold,
 )
 from urllib.parse import urlparse
-from .utils import append_ledger_block, get_available_balance, get_or_create_wallet
+from .utils import append_ledger_block, get_available_balance, get_or_create_wallet, apply_payment_effects
 from django.conf import settings
 from .blockchain import inr_to_token_quote, validate_native_transfer
 
@@ -205,11 +205,24 @@ def place_bid(request: HttpRequest, pk: int) -> HttpResponse:
             messages.error(request, f'Bid must be at least {new_min_allowed}.')
             return redirect('item_detail', pk=pk)
 
-        # Reserve/adjust hold for this user
+        # Lock wallet and re-check available balance under lock
         wallet = get_or_create_wallet(request.user)
+        wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
         hold = WalletHold.objects.select_for_update().filter(item=item_refreshed, user=request.user, status='active').first()
+        # Determine additional funds needed
         if hold:
             delta = amount - hold.amount
+        else:
+            delta = amount
+        if delta < 0:
+            delta = Decimal('0')
+        # Check available now (excludes all active holds)
+        available_now = get_available_balance(request.user)
+        if available_now < delta:
+            messages.error(request, f'Insufficient wallet balance. Need ₹{delta} more. Recharge your wallet.')
+            return redirect('wallet')
+        # Reserve/adjust hold for this user
+        if hold:
             if delta > 0:
                 hold.amount = amount
                 hold.save(update_fields=['amount', 'updated_at'])
@@ -359,101 +372,22 @@ def bank_pay_confirm(request: HttpRequest, pk: int) -> HttpResponse:
     payment.provider_ref = ref
     payment.status = 'succeeded'
     payment.save(update_fields=['provider_ref', 'status'])
-
-    # Apply the same post-payment effects as other providers
+    apply_payment_effects(payment)
+    # Messaging & redirects per purpose
     if payment.purpose == 'seat':
-        participant = AuctionParticipant.objects.get(item=payment.item, user=request.user)
-        participant.is_booked = True
-        participant.paid = True
-        participant.paid_at = timezone.now()
-        code = _generate_code()
-        while AuctionParticipant.objects.filter(item=payment.item, booking_code=code).exists():
-            code = _generate_code()
-        participant.booking_code = code
-        participant.save()
-        append_ledger_block({
-            'type': 'seat_booking',
-            'item_id': payment.item_id,
-            'user_id': request.user.pk,
-            'payment_id': payment.pk,
-            'amount': str(payment.amount),
-            'provider_ref': payment.provider_ref,
-            'timestamp': timezone.now().isoformat(),
-        })
-        messages.success(request, f'Seat booked. Your code: {participant.booking_code}')
+        messages.success(request, 'Seat booked successfully.')
         return redirect('item_detail', pk=payment.item_id)
-    elif payment.purpose == 'penalty':
-        participant = AuctionParticipant.objects.get(item=payment.item, user=request.user)
-        participant.penalty_due = False
-        participant.save(update_fields=['penalty_due'])
-        append_ledger_block({
-            'type': 'penalty_paid',
-            'item_id': payment.item_id,
-            'user_id': request.user.pk,
-            'payment_id': payment.pk,
-            'amount': str(payment.amount),
-            'provider_ref': payment.provider_ref,
-            'timestamp': timezone.now().isoformat(),
-        })
+    if payment.purpose == 'penalty':
         messages.success(request, 'Penalty paid. You can continue bidding.')
         return redirect('item_detail', pk=payment.item_id)
-    elif payment.purpose in ('order', 'buy_now'):
-        Order.objects.update_or_create(
-            item=payment.item,
-            buyer=request.user,
-            defaults={
-                'amount': payment.amount,
-                'status': 'paid',
-                'paid_at': timezone.now(),
-            }
-        )
-        append_ledger_block({
-            'type': 'order_paid',
-            'item_id': payment.item_id,
-            'buyer_id': request.user.pk,
-            'payment_id': payment.pk,
-            'amount': str(payment.amount),
-            'provider_ref': payment.provider_ref,
-            'timestamp': timezone.now().isoformat(),
-        })
+    if payment.purpose in ('order', 'buy_now'):
         messages.success(request, 'Payment successful!')
         return redirect('item_detail', pk=payment.item_id)
-    elif payment.purpose == 'recharge':
-        wallet = get_or_create_wallet(request.user)
-        wallet.balance = (wallet.balance or Decimal('0')) + Decimal(payment.amount)
-        wallet.save(update_fields=['balance'])
-        WalletTransaction.objects.create(
-            user=request.user,
-            payment=payment,
-            kind='credit',
-            amount=payment.amount,
-            balance_after=wallet.balance,
-        )
-        append_ledger_block({
-            'type': 'wallet_recharge',
-            'user_id': request.user.pk,
-            'payment_id': payment.pk,
-            'amount': str(payment.amount),
-            'provider_ref': payment.provider_ref,
-            'transaction_id': payment.transaction_id,
-            'timestamp': timezone.now().isoformat(),
-        })
+    if payment.purpose == 'recharge':
         messages.success(request, 'Recharge successful! Funds added to wallet.')
         return redirect('wallet')
-    else:
-        append_ledger_block({
-            'type': 'payment',
-            'payment_id': payment.pk,
-            'item_id': payment.item_id,
-            'buyer_id': payment.buyer_id,
-            'amount': str(payment.amount),
-            'provider_ref': payment.provider_ref,
-            'timestamp': timezone.now().isoformat(),
-        })
-        messages.success(request, 'Payment recorded!')
-        if payment.item_id:
-            return redirect('item_detail', pk=payment.item_id)
-        return redirect('wallet')
+    messages.success(request, 'Payment recorded!')
+    return redirect('wallet')
 
 
 @login_required
@@ -462,102 +396,21 @@ def google_pay_callback(request: HttpRequest, pk: int) -> HttpResponse:
     # Mark payment succeeded
     payment.status = 'succeeded'
     payment.save(update_fields=['status'])
-
-    # Post-payment effects similar to on-chain confirmation flow
+    apply_payment_effects(payment)
     if payment.purpose == 'seat':
-        participant = AuctionParticipant.objects.get(item=payment.item, user=request.user)
-        participant.is_booked = True
-        participant.paid = True
-        participant.paid_at = timezone.now()
-        # Ensure code uniqueness within this item
-        code = _generate_code()
-        while AuctionParticipant.objects.filter(item=payment.item, booking_code=code).exists():
-            code = _generate_code()
-        participant.booking_code = code
-        participant.save()
-        append_ledger_block({
-            'type': 'seat_booking',
-            'item_id': payment.item_id,
-            'user_id': request.user.pk,
-            'payment_id': payment.pk,
-            'amount': str(payment.amount),
-            'provider_ref': payment.provider_ref,
-            'timestamp': timezone.now().isoformat(),
-        })
-        messages.success(request, f'Seat booked. Your code: {participant.booking_code}')
+        messages.success(request, 'Seat booked successfully.')
         return redirect('item_detail', pk=payment.item_id)
-    elif payment.purpose == 'penalty':
-        participant = AuctionParticipant.objects.get(item=payment.item, user=request.user)
-        participant.penalty_due = False
-        participant.save(update_fields=['penalty_due'])
-        append_ledger_block({
-            'type': 'penalty_paid',
-            'item_id': payment.item_id,
-            'user_id': request.user.pk,
-            'payment_id': payment.pk,
-            'amount': str(payment.amount),
-            'provider_ref': payment.provider_ref,
-            'timestamp': timezone.now().isoformat(),
-        })
+    if payment.purpose == 'penalty':
         messages.success(request, 'Penalty paid. You can continue bidding.')
         return redirect('item_detail', pk=payment.item_id)
-    elif payment.purpose in ('order', 'buy_now'):
-        Order.objects.update_or_create(
-            item=payment.item,
-            buyer=request.user,
-            defaults={
-                'amount': payment.amount,
-                'status': 'paid',
-                'paid_at': timezone.now(),
-            }
-        )
-        append_ledger_block({
-            'type': 'order_paid',
-            'item_id': payment.item_id,
-            'buyer_id': request.user.pk,
-            'payment_id': payment.pk,
-            'amount': str(payment.amount),
-            'provider_ref': payment.provider_ref,
-            'timestamp': timezone.now().isoformat(),
-        })
+    if payment.purpose in ('order', 'buy_now'):
         messages.success(request, 'Payment successful!')
         return redirect('item_detail', pk=payment.item_id)
-    elif payment.purpose == 'recharge':
-        # Credit wallet balance
-        wallet = get_or_create_wallet(request.user)
-        wallet.balance = (wallet.balance or Decimal('0')) + Decimal(payment.amount)
-        wallet.save(update_fields=['balance'])
-        WalletTransaction.objects.create(
-            user=request.user,
-            payment=payment,
-            kind='credit',
-            amount=payment.amount,
-            balance_after=wallet.balance,
-        )
-        append_ledger_block({
-            'type': 'wallet_recharge',
-            'user_id': request.user.pk,
-            'payment_id': payment.pk,
-            'amount': str(payment.amount),
-            'provider_ref': payment.provider_ref,
-            'transaction_id': payment.transaction_id,
-            'timestamp': timezone.now().isoformat(),
-        })
+    if payment.purpose == 'recharge':
         messages.success(request, 'Recharge successful! Funds added to wallet.')
         return redirect('wallet')
-    else:
-        # Fallback generic record
-        append_ledger_block({
-            'type': 'payment',
-            'payment_id': payment.pk,
-            'item_id': payment.item_id,
-            'buyer_id': payment.buyer_id,
-            'amount': str(payment.amount),
-            'provider_ref': payment.provider_ref,
-            'timestamp': timezone.now().isoformat(),
-        })
-        messages.success(request, 'Payment successful!')
-        return redirect('item_detail', pk=payment.item_id)
+    messages.success(request, 'Payment successful!')
+    return redirect('item_detail', pk=payment.item_id)
 
 
 def _generate_code(length: int = 8) -> str:
@@ -948,84 +801,17 @@ def crypto_pay_confirm(request: HttpRequest, pk: int) -> HttpResponse:
     payment.save(update_fields=['tx_hash', 'payer_address', 'confirmations', 'onchain_status', 'status'])
 
     if result.get('ok'):
-        # Post-payment effects
+        apply_payment_effects(payment)
         if payment.purpose == 'seat':
-            participant = AuctionParticipant.objects.get(item=payment.item, user=request.user)
-            participant.is_booked = True
-            participant.paid = True
-            participant.paid_at = timezone.now()
-            code = _generate_code()
-            while AuctionParticipant.objects.filter(item=payment.item, booking_code=code).exists():
-                code = _generate_code()
-            participant.booking_code = code
-            participant.save()
-            append_ledger_block({
-                'type': 'seat_booking',
-                'item_id': payment.item_id,
-                'user_id': request.user.pk,
-                'payment_id': payment.pk,
-                'amount': str(payment.amount),
-                'tx_hash': payment.tx_hash,
-                'timestamp': timezone.now().isoformat(),
-            })
-            messages.success(request, f'Seat booked. Your code: {participant.booking_code}')
+            messages.success(request, 'Seat booked successfully.')
             return redirect('item_detail', pk=payment.item_id)
-        elif payment.purpose == 'penalty':
-            participant = AuctionParticipant.objects.get(item=payment.item, user=request.user)
-            participant.penalty_due = False
-            participant.save(update_fields=['penalty_due'])
-            append_ledger_block({
-                'type': 'penalty_paid',
-                'item_id': payment.item_id,
-                'user_id': request.user.pk,
-                'payment_id': payment.pk,
-                'amount': str(payment.amount),
-                'tx_hash': payment.tx_hash,
-                'timestamp': timezone.now().isoformat(),
-            })
+        if payment.purpose == 'penalty':
             messages.success(request, 'Penalty paid. You can continue bidding.')
             return redirect('item_detail', pk=payment.item_id)
-        elif payment.purpose in ('order', 'buy_now'):
-            Order.objects.update_or_create(
-                item=payment.item,
-                buyer=request.user,
-                defaults={
-                    'amount': payment.amount,
-                    'status': 'paid',
-                    'paid_at': timezone.now(),
-                }
-            )
-            append_ledger_block({
-                'type': 'order_paid',
-                'item_id': payment.item_id,
-                'buyer_id': request.user.pk,
-                'payment_id': payment.pk,
-                'amount': str(payment.amount),
-                'tx_hash': payment.tx_hash,
-                'timestamp': timezone.now().isoformat(),
-            })
+        if payment.purpose in ('order', 'buy_now'):
             messages.success(request, 'Payment successful!')
             return redirect('item_detail', pk=payment.item_id)
-        elif payment.purpose == 'recharge':
-            wallet = get_or_create_wallet(request.user)
-            wallet.balance = (wallet.balance or Decimal('0')) + Decimal(payment.amount)
-            wallet.save(update_fields=['balance'])
-            WalletTransaction.objects.create(
-                user=request.user,
-                payment=payment,
-                kind='credit',
-                amount=payment.amount,
-                balance_after=wallet.balance,
-            )
-            append_ledger_block({
-                'type': 'wallet_recharge',
-                'user_id': request.user.pk,
-                'payment_id': payment.pk,
-                'amount': str(payment.amount),
-                'tx_hash': payment.tx_hash,
-                'transaction_id': payment.transaction_id,
-                'timestamp': timezone.now().isoformat(),
-            })
+        if payment.purpose == 'recharge':
             messages.success(request, 'Recharge successful! Funds added to wallet.')
             return redirect('wallet')
     else:
@@ -1053,52 +839,13 @@ def settle(request: HttpRequest, pk: int) -> HttpResponse:
         messages.info(request, 'No bids. Auction closed.')
         return redirect('item_detail', pk=pk)
 
-    with transaction.atomic():
-        # Consume hold if available, else fall back to bank debit simulation
-        wallet = get_or_create_wallet(highest.bidder)
-        hold = WalletHold.objects.select_for_update().filter(item=item, user=highest.bidder, status='active').first()
-        paid_via = 'wallet'
-        if hold and wallet.balance >= hold.amount:
-            wallet.balance = (wallet.balance or Decimal('0')) - hold.amount
-            wallet.save(update_fields=['balance'])
-            hold.status = 'consumed'
-            hold.save(update_fields=['status', 'updated_at'])
-            WalletTransaction.objects.create(
-                user=highest.bidder,
-                item=item,
-                kind='hold_consume',
-                amount=hold.amount,
-                balance_after=wallet.balance,
-            )
-        else:
-            paid_via = 'bank'
+    from .utils import settle_auction_item
+    ok = settle_auction_item(item)
 
-        order = Order.objects.create(item=item, buyer=highest.bidder, amount=highest.amount, status='paid', paid_at=timezone.now())
-        payment = Payment.objects.create(
-            item=item,
-            buyer=highest.bidder,
-            amount=highest.amount,
-            purpose='order',
-            status='succeeded',
-            provider='bank' if paid_via == 'bank' else 'wallet',
-            provider_ref=f"ORD-{order.pk}"
-        )
-        append_ledger_block({
-            'type': 'order_paid',
-            'item_id': item.pk,
-            'buyer_id': highest.bidder.pk,
-            'order_id': order.pk,
-            'payment_id': payment.pk,
-            'amount': str(payment.amount),
-            'paid_via': paid_via,
-            'transaction_id': payment.transaction_id,
-            'timestamp': timezone.now().isoformat(),
-        })
-        item.is_settled = True
-        item.is_active = False
-        item.save(update_fields=['is_settled', 'is_active'])
-
-    messages.success(request, 'Winner charged automatically and order created.')
+    if ok:
+        messages.success(request, 'Winner charged automatically and order created.')
+    else:
+        messages.info(request, 'Item already settled or not eligible.')
     return redirect('item_detail', pk=pk)
 
 
@@ -1157,14 +904,15 @@ def wallet_recharge(request: HttpRequest) -> HttpResponse:
     elif method == 'crypto':
         provider = 'blockchain'
 
-    payment = Payment.objects.create(
-        item=None,
-        buyer=request.user,
-        amount=amount,
-        purpose='recharge',
-        status='pending',
-        provider=provider,
-    )
+    with transaction.atomic():
+        payment = Payment.objects.create(
+            item=None,
+            buyer=request.user,
+            amount=amount,
+            purpose='recharge',
+            status='pending',
+            provider=provider,
+        )
     if provider == 'blockchain':
         return redirect('crypto_pay_start', pk=payment.pk)
     elif provider == 'bank':
@@ -1183,6 +931,7 @@ def update_payment_methods(request: HttpRequest) -> HttpResponse:
     bank_holder_name = (request.POST.get('bank_holder_name') or '').strip()
     bank_account_number = (request.POST.get('bank_account_number') or '').strip()
     bank_ifsc = (request.POST.get('bank_ifsc') or '').strip().upper()
+    auto_debit_raw = request.POST.get('auto_debit_consent')
 
     changed = False
     if upi_vpa != profile.upi_vpa:
@@ -1197,6 +946,12 @@ def update_payment_methods(request: HttpRequest) -> HttpResponse:
     if bank_ifsc != profile.bank_ifsc:
         profile.bank_ifsc = bank_ifsc
         changed = True
+    # Check auto-debit checkbox
+    auto_debit = bool(auto_debit_raw)
+    if profile.auto_debit_consent != auto_debit:
+        profile.auto_debit_consent = auto_debit
+        changed = True
+
     if changed:
         profile.save(update_fields=['upi_vpa', 'bank_holder_name', 'bank_account_number', 'bank_ifsc'])
         messages.success(request, 'Payment methods updated.')
