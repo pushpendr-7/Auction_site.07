@@ -174,3 +174,9 @@ BLOCKCHAIN_MERCHANT_ADDRESS = os.environ.get("BLOCKCHAIN_MERCHANT_ADDRESS", "")
 BLOCKCHAIN_MIN_CONFIRMATIONS = int(os.environ.get("BLOCKCHAIN_MIN_CONFIRMATIONS", "3"))
 # Naive price for quotes (local currency per 1 token); set via env in production
 BLOCKCHAIN_PRICE_INR_PER_TOKEN = os.environ.get("BLOCKCHAIN_PRICE_INR_PER_TOKEN", "100.0")
+
+# Platform bank/UPI details for offline payments and wallet recharges
+PLATFORM_UPI_VPA = os.environ.get("PLATFORM_UPI_VPA", "")
+PLATFORM_BANK_HOLDER_NAME = os.environ.get("PLATFORM_BANK_HOLDER_NAME", "")
+PLATFORM_BANK_ACCOUNT_NUMBER = os.environ.get("PLATFORM_BANK_ACCOUNT_NUMBER", "")
+PLATFORM_BANK_IFSC = os.environ.get("PLATFORM_BANK_IFSC", "")

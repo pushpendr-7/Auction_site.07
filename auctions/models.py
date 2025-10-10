@@ -82,11 +82,18 @@ class AuctionParticipant(models.Model):
 class Payment(models.Model):
     item = models.ForeignKey(AuctionItem, on_delete=models.CASCADE, related_name='payments', null=True, blank=True)
     buyer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='payments')
+    # The intended recipient of this payment (e.g., seller for orders). Null implies platform.
+    recipient = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='payments_received')
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     purpose = models.CharField(max_length=20, default='order')  # order, seat, penalty, buy_now
     provider = models.CharField(max_length=50, default='google_pay')
     provider_ref = models.CharField(max_length=200, blank=True)
     status = models.CharField(max_length=30, default='pending')
+    # Snapshot of recipient bank/UPI details at the time of payment (for offline/bank flows)
+    recipient_upi_vpa = models.CharField(max_length=120, blank=True, default='')
+    recipient_bank_holder_name = models.CharField(max_length=120, blank=True, default='')
+    recipient_bank_account_number = models.CharField(max_length=34, blank=True, default='')
+    recipient_bank_ifsc = models.CharField(max_length=20, blank=True, default='')
     # Blockchain fields
     chain = models.CharField(max_length=30, blank=True)  # polygon, ethereum, etc.
     token_symbol = models.CharField(max_length=20, blank=True)  # MATIC, ETH, USDT

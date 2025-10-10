@@ -1,0 +1,56 @@
+{% extends 'auctions/base.html' %}
+{% block title %}Bank Transfer{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">Pay via Bank / UPI</h1>
+<div class="card">
+  <div class="card-body">
+    <div class="mb-2">Amount to pay: <strong>₹ {{ payment.amount }}</strong></div>
+    {% if not payment.recipient_upi_vpa and not payment.recipient_bank_account_number %}
+    <div class="alert alert-warning">Recipient payment details are not configured. Contact support.</div>
+    {% endif %}
+    <div class="row g-3">
+      {% if payment.recipient_upi_vpa %}
+      <div class="col-12 col-md-6">
+        <div class="border rounded p-3 h-100">
+          <div class="fw-bold mb-2">UPI (Preferred)</div>
+          <div class="small text-muted">VPA</div>
+          <div class="fs-6">{{ payment.recipient_upi_vpa }}</div>
+          <div class="small text-muted mt-2">Use any UPI app to send.</div>
+        </div>
+      </div>
+      {% endif %}
+      {% if payment.recipient_bank_account_number and payment.recipient_bank_ifsc %}
+      <div class="col-12 col-md-6">
+        <div class="border rounded p-3 h-100">
+          <div class="fw-bold mb-2">Bank Transfer (NEFT/IMPS)</div>
+          {% if payment.recipient_bank_holder_name %}
+          <div class="small text-muted">Account Holder</div>
+          <div>{{ payment.recipient_bank_holder_name }}</div>
+          {% endif %}
+          <div class="small text-muted mt-2">Account Number</div>
+          <div class="font-monospace">{{ payment.recipient_bank_account_number }}</div>
+          <div class="small text-muted mt-2">IFSC</div>
+          <div class="font-monospace">{{ payment.recipient_bank_ifsc }}</div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    <hr>
+    <form method="post" action="{% url 'bank_pay_confirm' payment.id %}" class="row g-2">
+      {% csrf_token %}
+      <div class="col-12 col-md-6">
+        <label class="form-label small">Reference/UTR number</label>
+        <input type="text" name="reference" class="form-control" placeholder="UTR/Ref" required>
+      </div>
+      <div class="col-12">
+        <button class="btn btn-primary">I've paid - Confirm</button>
+        {% if payment.item_id %}
+        <a class="btn btn-outline-secondary" href="{% url 'item_detail' payment.item_id %}">Back</a>
+        {% else %}
+        <a class="btn btn-outline-secondary" href="{% url 'wallet' %}">Back to Wallet</a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -28,7 +28,7 @@ class BidAdmin(admin.ModelAdmin):
 
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
-    list_display = ("id", "item", "buyer", "amount", "purpose", "status", "provider", "created_at")
+    list_display = ("id", "item", "buyer", "recipient", "amount", "purpose", "status", "provider", "created_at")
     list_filter = ("status", "provider", "purpose")
 
 
