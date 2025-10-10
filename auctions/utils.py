@@ -51,7 +51,9 @@ def get_available_balance(user) -> Decimal:
     """User's spendable balance, excluding active holds."""
     wallet = get_or_create_wallet(user)
     holds_total = get_active_holds_total(user)
-    return (wallet.balance or Decimal('0')) - holds_total
+    balance = wallet.balance or Decimal('0')
+    available = balance - holds_total
+    return max(available, Decimal('0'))  # Ensure non-negative balance
 
 
 def apply_payment_effects(payment: Payment) -> bool:
@@ -197,26 +199,32 @@ def settle_auction_item(item) -> bool:
         ).first()
         paid_via = 'wallet'
         amount = highest.amount
-        if hold and wallet.balance >= hold.amount:
-            wallet.balance = (wallet.balance or Decimal('0')) - hold.amount
-            wallet.save(update_fields=['balance'])
-            hold.status = 'consumed'
-            hold.save(update_fields=['status', 'updated_at'])
-            WalletTransaction.objects.create(
-                user=highest.bidder,
-                item=fresh_item,
-                kind='hold_consume',
-                amount=hold.amount,
-                balance_after=wallet.balance,
-            )
-        else:
-            # Simulate auto-debit only if explicitly consented by user
-            profile, _ = UserProfile.objects.get_or_create(user=highest.bidder)
-            if profile.auto_debit_consent:
-                paid_via = 'bank'
+        
+        try:
+            if hold and wallet.balance >= hold.amount:
+                wallet.balance = (wallet.balance or Decimal('0')) - hold.amount
+                wallet.save(update_fields=['balance'])
+                hold.status = 'consumed'
+                hold.save(update_fields=['status', 'updated_at'])
+                WalletTransaction.objects.create(
+                    user=highest.bidder,
+                    item=fresh_item,
+                    kind='hold_consume',
+                    amount=hold.amount,
+                    balance_after=wallet.balance,
+                )
             else:
-                # Without consent, leave payment pending for manual completion
-                paid_via = 'bank_pending'
+                # Simulate auto-debit only if explicitly consented by user
+                profile, _ = UserProfile.objects.get_or_create(user=highest.bidder)
+                if profile.auto_debit_consent:
+                    paid_via = 'bank'
+                else:
+                    # Without consent, leave payment pending for manual completion
+                    paid_via = 'bank_pending'
+        except Exception as e:
+            # Log error and fallback to manual payment
+            print(f"Error processing wallet payment for user {highest.bidder.id}: {e}")
+            paid_via = 'bank_pending'
 
         order = Order.objects.create(
             item=fresh_item,

@@ -22,7 +22,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-zhq-wvp36s95d!rp+#qrk4l@2#ks$=m04628*a=pzp4u1_m^1$'
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-zhq-wvp36s95d!rp+#qrk4l@2#ks$=m04628*a=pzp4u1_m^1$')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 # Default to False; enable locally with DJANGO_DEBUG=true
@@ -146,7 +146,10 @@ if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    SECURE_SSL_REDIRECT = False  # Handled by platform; avoid redirect loops
+    SECURE_SSL_REDIRECT = True  # Redirect HTTP to HTTPS
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
 
 MEDIA_URL = '/media/'
 # Allow overriding media root to a persistent disk path via env

@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import random
 import string
 import secrets
@@ -11,7 +11,8 @@ from django.utils import timezone
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django import forms
 from django.db import transaction
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.csrf import csrf_exempt
 
 from .models import (
     AuctionItem,
@@ -44,6 +45,28 @@ class AuctionItemForm(forms.ModelForm):
             'ends_at',
             'seat_limit',
         ]
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        starts_at = cleaned_data.get('starts_at')
+        ends_at = cleaned_data.get('ends_at')
+        starting_price = cleaned_data.get('starting_price')
+        buy_now_price = cleaned_data.get('buy_now_price')
+        
+        if starts_at and ends_at:
+            if ends_at <= starts_at:
+                raise forms.ValidationError('End time must be after start time.')
+            if ends_at <= timezone.now():
+                raise forms.ValidationError('End time must be in the future.')
+        
+        if starting_price and starting_price <= 0:
+            raise forms.ValidationError('Starting price must be positive.')
+        
+        if buy_now_price and starting_price:
+            if buy_now_price <= starting_price:
+                raise forms.ValidationError('Buy now price must be higher than starting price.')
+        
+        return cleaned_data
 
 
 class RegistrationForm(UserCreationForm):
@@ -172,7 +195,7 @@ def place_bid(request: HttpRequest, pk: int) -> HttpResponse:
 
     try:
         amount = Decimal(request.POST.get('amount', '0'))
-    except Exception:
+    except (ValueError, TypeError, InvalidOperation):
         messages.error(request, 'Invalid bid amount.')
         return redirect('item_detail', pk=pk)
 
@@ -181,7 +204,13 @@ def place_bid(request: HttpRequest, pk: int) -> HttpResponse:
         min_allowed = max(min_allowed, item.highest_bid.amount + Decimal('1.00'))
 
     if amount < min_allowed:
-        messages.error(request, f'Bid must be at least {min_allowed}.')
+        messages.error(request, f'Bid must be at least ₹{min_allowed}.')
+        return redirect('item_detail', pk=pk)
+    
+    # Additional validation: bid should not be unreasonably high
+    max_reasonable_bid = item.starting_price * Decimal('1000')  # 1000x starting price
+    if amount > max_reasonable_bid:
+        messages.error(request, f'Bid amount seems unreasonably high. Maximum allowed is ₹{max_reasonable_bid}.')
         return redirect('item_detail', pk=pk)
 
     # Wallet balance check and hold logic
@@ -414,7 +443,11 @@ def google_pay_callback(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 def _generate_code(length: int = 8) -> str:
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+    """Generate a unique booking code, avoiding confusing characters."""
+    # Avoid confusing characters like 0, O, 1, I, L
+    chars = string.ascii_uppercase.replace('O', '').replace('I', '').replace('L', '') + \
+            string.digits.replace('0', '').replace('1', '')
+    return ''.join(random.choices(chars, k=length))
 
 
 @login_required
@@ -571,7 +604,7 @@ def set_meet_link(request: HttpRequest, pk: int) -> HttpResponse:
 
     try:
         parsed = urlparse(raw_url)
-    except Exception:
+    except (ValueError, TypeError):
         parsed = None
 
     if not parsed or parsed.scheme not in ('http', 'https') or not parsed.netloc:
@@ -676,6 +709,7 @@ def resend_phone_otp(request: HttpRequest) -> HttpResponse:
 
 
 @login_required
+@require_POST
 def presence_ping(request: HttpRequest, pk: int) -> HttpResponse:
     item = get_object_or_404(AuctionItem, pk=pk)
     participant, _ = AuctionParticipant.objects.get_or_create(item=item, user=request.user)
@@ -885,7 +919,7 @@ def wallet_recharge(request: HttpRequest) -> HttpResponse:
         return redirect('wallet')
     try:
         amount = Decimal(request.POST.get('amount', '0'))
-    except Exception:
+    except (ValueError, TypeError, InvalidOperation):
         messages.error(request, 'Invalid amount.')
         return redirect('wallet')
     # Per-transaction recharge limit (₹10,000)
@@ -894,6 +928,9 @@ def wallet_recharge(request: HttpRequest) -> HttpResponse:
         return redirect('wallet')
     if amount <= 0:
         messages.error(request, 'Amount must be positive.')
+        return redirect('wallet')
+    if amount < Decimal('1.00'):
+        messages.error(request, 'Minimum recharge amount is ₹1.00.')
         return redirect('wallet')
     method = (request.POST.get('method') or 'upi').lower()
     provider = 'google_pay'

@@ -1,1 +1,1 @@
-console.log('Auction site loaded');
+// Auction site loaded
