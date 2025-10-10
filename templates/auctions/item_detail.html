@@ -83,12 +83,26 @@
     <li class="list-group-item d-flex justify-content-between">
       <span>{{ bid.bidder.username }}</span>
       <span>{{ bid.amount }}{% if not bid.is_active %} <span class="text-muted">(inactive)</span>{% endif %}</span>
-      <span class="text-muted">{{ bid.created_at }}</span>
+      <span class="text-muted">{{ bid.created_at|date:'Y-m-d H:i:s' }}</span>
     </li>
   {% empty %}
     <li class="list-group-item">No bids yet.</li>
   {% endfor %}
 </ul>
+
+<div class="mt-3 small text-muted">
+  <strong>Rules:</strong>
+  <ul>
+    <li>Sab bids sabko dikhengi: kisne, kab (exact time), aur kitni rakam.</li>
+    <li>Minimum bid: Base price se zyada hi bid lagegi. Kam hui to reject.</li>
+    <li>Bid se pehle wallet recharge zaroori. Balance kam hua to bid place nahi hogi.</li>
+    <li>Winner decide hote hi amount auto-deduct hoga. Nahi jeete to paise safe.</li>
+  </ul>
+  Optional: Bank linking available; jeetne par direct bank se deduction ho sakta hai.
+  <a href="/wallet/">Wallet</a>
+  |
+  <a href="/history/">History</a>
+</div>
 
 <hr>
 <h2 class="h6">Join with code</h2>

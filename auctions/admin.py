@@ -1,5 +1,16 @@
 from django.contrib import admin
-from .models import AuctionItem, Bid, Payment, LedgerBlock, AuctionParticipant, Order, UserProfile
+from .models import (
+    AuctionItem,
+    Bid,
+    Payment,
+    LedgerBlock,
+    AuctionParticipant,
+    Order,
+    UserProfile,
+    Wallet,
+    WalletTransaction,
+    WalletHold,
+)
 
 
 @admin.register(AuctionItem)
@@ -40,3 +51,20 @@ class OrderAdmin(admin.ModelAdmin):
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
     list_display = ("user", "phone", "location", "phone_verified_at", "email_verified_at")
+
+
+@admin.register(Wallet)
+class WalletAdmin(admin.ModelAdmin):
+    list_display = ("user", "balance", "updated_at")
+
+
+@admin.register(WalletTransaction)
+class WalletTransactionAdmin(admin.ModelAdmin):
+    list_display = ("user", "kind", "amount", "balance_after", "item", "payment", "created_at")
+    list_filter = ("kind",)
+
+
+@admin.register(WalletHold)
+class WalletHoldAdmin(admin.ModelAdmin):
+    list_display = ("user", "item", "amount", "status", "created_at")
+    list_filter = ("status",)

@@ -28,4 +28,7 @@ urlpatterns = [
     path('items/<int:pk>/settle/', views.settle, name='settle'),
     path('verify/', views.verify, name='verify'),
     path('verify/resend-otp/', views.resend_phone_otp, name='resend_phone_otp'),
+    path('wallet/', views.wallet_view, name='wallet'),
+    path('wallet/recharge/', views.wallet_recharge, name='wallet_recharge'),
+    path('wallet/payment-methods/', views.update_payment_methods, name='update_payment_methods'),
 ]
