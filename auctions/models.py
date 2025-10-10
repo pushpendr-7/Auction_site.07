@@ -107,6 +107,8 @@ class Payment(models.Model):
     confirmations = models.PositiveIntegerField(default=0)
     onchain_status = models.CharField(max_length=30, blank=True)  # pending, confirmed, failed
     created_at = models.DateTimeField(auto_now_add=True)
+    # Indicates that post-payment effects (wallet credit, seat activation, etc.) were applied
+    processed_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self) -> str:
         return f"Payment {self.amount} for {self.item_id} ({self.status})"
@@ -160,6 +162,8 @@ class UserProfile(models.Model):
     bank_holder_name = models.CharField(max_length=120, blank=True, default='')
     bank_account_number = models.CharField(max_length=34, blank=True, default='')
     bank_ifsc = models.CharField(max_length=20, blank=True, default='')
+    # Explicit consent to auto-debit linked bank for settlements
+    auto_debit_consent = models.BooleanField(default=False)
 
     def __str__(self) -> str:
         return f"Profile for {self.user_id}"
@@ -215,6 +219,14 @@ class WalletHold(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        constraints = [
+            # Only one active hold per user+item to avoid double reservation
+            models.UniqueConstraint(
+                fields=['user', 'item'],
+                condition=models.Q(status='active'),
+                name='unique_active_hold_per_user_item',
+            )
+        ]
 
     def __str__(self) -> str:
         return f"Hold ₹{self.amount} on item {self.item_id} ({self.status})"

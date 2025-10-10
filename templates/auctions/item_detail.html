@@ -10,7 +10,7 @@
     <p>{{ item.description }}</p>
     <p class="text-muted">Address: {{ item.address }}</p>
     <p>Starting price: <strong>{{ item.starting_price }}</strong></p>
-    <p>Highest bid: <strong>{% if item.highest_bid %}{{ item.highest_bid.amount }}{% else %}-{% endif %}</strong></p>
+    <p>Highest bid: <strong id="highest-amount">{% if item.highest_bid %}{{ item.highest_bid.amount }}{% else %}-{% endif %}</strong></p>
     <p>Participants: {{ item.participants_count }}{% if item.seat_limit %} / {{ item.seat_limit }} seats{% endif %}</p>
     <p>Ends at: {{ item.ends_at }}</p>
 
@@ -119,6 +119,8 @@
       if (!el) return;
       if (!data.bids || !data.bids.length){
         el.innerHTML = '<li class="list-group-item">No bids yet.</li>';
+        var hi = document.getElementById('highest-amount');
+        if (hi) hi.textContent = '-';
         return;
       }
       el.innerHTML = data.bids.map(function(b){
@@ -130,6 +132,12 @@
           + '<span class="text-muted">' + ts + '</span>'
           + '</li>';
       }).join('');
+      // Update header highest amount to top active bid
+      var hi = document.getElementById('highest-amount');
+      if (hi) {
+        var top = data.bids.find(function(b){ return b.is_active; }) || data.bids[0];
+        hi.textContent = top ? top.amount : '-';
+      }
     }
     function tick(){
       fetch('/items/{{ item.pk }}/bids.json').then(function(r){ return r.json(); }).then(renderBids).catch(function(){});
