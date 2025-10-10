@@ -263,15 +263,25 @@ def buy_now(request: HttpRequest, pk: int) -> HttpResponse:
     if item.buy_now_price is None:
         messages.error(request, 'Buy now is not available for this item.')
         return redirect('item_detail', pk=pk)
-    # Always use Google Pay for buy now
+    # Provider selection via query (?provider=bank|gpay|crypto|wallet)
+    provider_param = (request.GET.get('provider') or 'gpay').lower()
+    provider = 'google_pay'
+    if provider_param in ('bank', 'upi', 'neft', 'imps'):
+        provider = 'bank'
+    elif provider_param in ('crypto', 'blockchain'):
+        provider = 'blockchain'
     payment = Payment.objects.create(
         item=item,
         buyer=request.user,
         amount=item.buy_now_price,
         purpose='buy_now',
-        provider='google_pay',
+        provider=provider,
         status='pending',
     )
+    if provider == 'blockchain':
+        return redirect('crypto_pay_start', pk=payment.pk)
+    elif provider == 'bank':
+        return redirect('bank_pay_start', pk=payment.pk)
     return redirect('google_pay_start', pk=payment.pk)
 
 
@@ -284,6 +294,163 @@ def google_pay_start(request: HttpRequest, pk: int) -> HttpResponse:
     payment.save()
     # Simulate redirect to Google Pay and immediate callback
     return redirect('google_pay_callback', pk=payment.pk)
+
+
+@login_required
+def bank_pay_start(request: HttpRequest, pk: int) -> HttpResponse:
+    payment = get_object_or_404(Payment, pk=pk, buyer=request.user)
+    # Determine recipient: platform for recharge/seat/penalty; seller for order/buy_now
+    recipient_user = None
+    if payment.purpose in ('order', 'buy_now') and payment.item:
+        recipient_user = payment.item.owner
+    # Snapshot recipient details: prefer seller's profile; fallback to platform settings
+    from django.conf import settings
+    rec_upi = ''
+    rec_holder = ''
+    rec_acc = ''
+    rec_ifsc = ''
+    if recipient_user:
+        rec_profile, _ = UserProfile.objects.get_or_create(user=recipient_user)
+        rec_upi = rec_profile.upi_vpa or ''
+        rec_holder = rec_profile.bank_holder_name or ''
+        rec_acc = rec_profile.bank_account_number or ''
+        rec_ifsc = rec_profile.bank_ifsc or ''
+    # Platform fallback for all cases
+    rec_upi = rec_upi or getattr(settings, 'PLATFORM_UPI_VPA', '')
+    rec_holder = rec_holder or getattr(settings, 'PLATFORM_BANK_HOLDER_NAME', '')
+    rec_acc = rec_acc or getattr(settings, 'PLATFORM_BANK_ACCOUNT_NUMBER', '')
+    rec_ifsc = rec_ifsc or getattr(settings, 'PLATFORM_BANK_IFSC', '')
+
+    # Persist snapshot on Payment and link recipient user if available
+    payment.recipient = recipient_user
+    payment.recipient_upi_vpa = rec_upi
+    payment.recipient_bank_holder_name = rec_holder
+    payment.recipient_bank_account_number = rec_acc
+    payment.recipient_bank_ifsc = rec_ifsc
+    payment.provider = 'bank'
+    payment.status = 'pending'
+    payment.save(update_fields=[
+        'recipient',
+        'recipient_upi_vpa',
+        'recipient_bank_holder_name',
+        'recipient_bank_account_number',
+        'recipient_bank_ifsc',
+        'provider',
+        'status',
+    ])
+
+    return render(request, 'auctions/bank_pay.html', {
+        'payment': payment,
+    })
+
+
+@login_required
+def bank_pay_confirm(request: HttpRequest, pk: int) -> HttpResponse:
+    # Simple manual confirmation: user enters reference ID after transfer
+    payment = get_object_or_404(Payment, pk=pk, buyer=request.user)
+    if request.method != 'POST':
+        return redirect('bank_pay_start', pk=pk)
+    ref = (request.POST.get('reference') or '').strip()
+    if not ref:
+        messages.error(request, 'Reference/UTR is required.')
+        return redirect('bank_pay_start', pk=pk)
+    payment.provider_ref = ref
+    payment.status = 'succeeded'
+    payment.save(update_fields=['provider_ref', 'status'])
+
+    # Apply the same post-payment effects as other providers
+    if payment.purpose == 'seat':
+        participant = AuctionParticipant.objects.get(item=payment.item, user=request.user)
+        participant.is_booked = True
+        participant.paid = True
+        participant.paid_at = timezone.now()
+        code = _generate_code()
+        while AuctionParticipant.objects.filter(item=payment.item, booking_code=code).exists():
+            code = _generate_code()
+        participant.booking_code = code
+        participant.save()
+        append_ledger_block({
+            'type': 'seat_booking',
+            'item_id': payment.item_id,
+            'user_id': request.user.pk,
+            'payment_id': payment.pk,
+            'amount': str(payment.amount),
+            'provider_ref': payment.provider_ref,
+            'timestamp': timezone.now().isoformat(),
+        })
+        messages.success(request, f'Seat booked. Your code: {participant.booking_code}')
+        return redirect('item_detail', pk=payment.item_id)
+    elif payment.purpose == 'penalty':
+        participant = AuctionParticipant.objects.get(item=payment.item, user=request.user)
+        participant.penalty_due = False
+        participant.save(update_fields=['penalty_due'])
+        append_ledger_block({
+            'type': 'penalty_paid',
+            'item_id': payment.item_id,
+            'user_id': request.user.pk,
+            'payment_id': payment.pk,
+            'amount': str(payment.amount),
+            'provider_ref': payment.provider_ref,
+            'timestamp': timezone.now().isoformat(),
+        })
+        messages.success(request, 'Penalty paid. You can continue bidding.')
+        return redirect('item_detail', pk=payment.item_id)
+    elif payment.purpose in ('order', 'buy_now'):
+        Order.objects.update_or_create(
+            item=payment.item,
+            buyer=request.user,
+            defaults={
+                'amount': payment.amount,
+                'status': 'paid',
+                'paid_at': timezone.now(),
+            }
+        )
+        append_ledger_block({
+            'type': 'order_paid',
+            'item_id': payment.item_id,
+            'buyer_id': request.user.pk,
+            'payment_id': payment.pk,
+            'amount': str(payment.amount),
+            'provider_ref': payment.provider_ref,
+            'timestamp': timezone.now().isoformat(),
+        })
+        messages.success(request, 'Payment successful!')
+        return redirect('item_detail', pk=payment.item_id)
+    elif payment.purpose == 'recharge':
+        wallet = get_or_create_wallet(request.user)
+        wallet.balance = (wallet.balance or Decimal('0')) + Decimal(payment.amount)
+        wallet.save(update_fields=['balance'])
+        WalletTransaction.objects.create(
+            user=request.user,
+            payment=payment,
+            kind='credit',
+            amount=payment.amount,
+            balance_after=wallet.balance,
+        )
+        append_ledger_block({
+            'type': 'wallet_recharge',
+            'user_id': request.user.pk,
+            'payment_id': payment.pk,
+            'amount': str(payment.amount),
+            'provider_ref': payment.provider_ref,
+            'timestamp': timezone.now().isoformat(),
+        })
+        messages.success(request, 'Recharge successful! Funds added to wallet.')
+        return redirect('wallet')
+    else:
+        append_ledger_block({
+            'type': 'payment',
+            'payment_id': payment.pk,
+            'item_id': payment.item_id,
+            'buyer_id': payment.buyer_id,
+            'amount': str(payment.amount),
+            'provider_ref': payment.provider_ref,
+            'timestamp': timezone.now().isoformat(),
+        })
+        messages.success(request, 'Payment recorded!')
+        if payment.item_id:
+            return redirect('item_detail', pk=payment.item_id)
+        return redirect('wallet')
 
 
 @login_required
@@ -409,15 +576,25 @@ def book_seat(request: HttpRequest, pk: int) -> HttpResponse:
         messages.error(request, 'No seats available.')
         return redirect('item_detail', pk=pk)
 
-    # Charge ₹5 seat booking via Google Pay
+    # Charge ₹5 seat booking; provider selection via ?provider=bank|gpay|crypto
+    provider_param = (request.GET.get('provider') or 'gpay').lower()
+    provider = 'google_pay'
+    if provider_param in ('bank', 'upi', 'neft', 'imps'):
+        provider = 'bank'
+    elif provider_param in ('crypto', 'blockchain'):
+        provider = 'blockchain'
     payment = Payment.objects.create(
         item=item,
         buyer=request.user,
         amount=Decimal('5.00'),
         purpose='seat',
         status='pending',
-        provider='google_pay',
+        provider=provider,
     )
+    if provider == 'blockchain':
+        return redirect('crypto_pay_start', pk=payment.pk)
+    elif provider == 'bank':
+        return redirect('bank_pay_start', pk=payment.pk)
     return redirect('google_pay_start', pk=payment.pk)
 
 
@@ -684,6 +861,12 @@ def pay_penalty(request: HttpRequest, pk: int) -> HttpResponse:
     if not participant.penalty_due:
         messages.info(request, 'No penalty due.')
         return redirect('item_detail', pk=pk)
+    provider_param = (request.GET.get('provider') or 'gpay').lower()
+    provider = 'google_pay'
+    if provider_param in ('bank', 'upi', 'neft', 'imps'):
+        provider = 'bank'
+    elif provider_param in ('crypto', 'blockchain'):
+        provider = 'blockchain'
     payment = Payment.objects.filter(
         item=item, buyer=request.user, purpose='penalty', status__in=['pending', 'processing']
     ).order_by('-created_at').first()
@@ -694,8 +877,12 @@ def pay_penalty(request: HttpRequest, pk: int) -> HttpResponse:
             amount=Decimal('200.00'),
             purpose='penalty',
             status='pending',
-            provider='google_pay',
+            provider=provider,
         )
+    if provider == 'blockchain':
+        return redirect('crypto_pay_start', pk=payment.pk)
+    elif provider == 'bank':
+        return redirect('bank_pay_start', pk=payment.pk)
     return redirect('google_pay_start', pk=payment.pk)
 
 @login_required
@@ -956,6 +1143,8 @@ def wallet_recharge(request: HttpRequest) -> HttpResponse:
     )
     if provider == 'blockchain':
         return redirect('crypto_pay_start', pk=payment.pk)
+    elif provider == 'bank':
+        return redirect('bank_pay_start', pk=payment.pk)
     else:
         return redirect('google_pay_start', pk=payment.pk)
 
