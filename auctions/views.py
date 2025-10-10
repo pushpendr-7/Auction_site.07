@@ -569,11 +569,9 @@ def call_activity(request: HttpRequest, pk: int) -> JsonResponse:
         ).first()
         if not participant:
             return JsonResponse({'error': 'forbidden'}, status=403)
-        try:
-            verified_items = {int(x) for x in request.session.get('verified_items', [])}
-        except Exception:
-            verified_items = set()
-        if int(item.pk) not in verified_items:
+        # Persisted check: require a verified code on the participant record
+        ap = AuctionParticipant.objects.filter(item=item, user=request.user).only('code_verified_at').first()
+        if not (ap and ap.code_verified_at):
             return JsonResponse({'error': 'forbidden'}, status=403)
 
     participants = list(
