@@ -1,0 +1,97 @@
+{% extends 'auctions/base.html' %}
+{% block title %}Wallet{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">Your Wallet</h1>
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <div class="text-muted small">Available</div>
+            <div class="fs-4 fw-bold">₹ {{ available }}</div>
+            <div class="text-muted small">Balance: ₹ {{ wallet.balance }}</div>
+          </div>
+          <form action="{% url 'wallet_recharge' %}" method="post" class="d-flex gap-2 align-items-center">
+            {% csrf_token %}
+            <input type="number" step="0.01" min="1" name="amount" class="form-control" placeholder="Amount" required>
+            <select name="method" class="form-select">
+              <option value="upi">UPI</option>
+              <option value="card">Card</option>
+              <option value="bank">Bank</option>
+              <option value="crypto">Crypto</option>
+            </select>
+            <button class="btn btn-primary">Recharge</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-body">
+        <div class="fw-bold mb-2">Active Holds</div>
+        {% if holds %}
+        <ul class="list-group">
+          {% for h in holds %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>{{ h.item.title }} — {{ h.get_status_display }}</span>
+            <span>₹ {{ h.amount }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="text-muted">No holds.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-body">
+        <div class="fw-bold mb-2">Payment Methods</div>
+        <form action="{% url 'update_payment_methods' %}" method="post" class="row g-2">
+          {% csrf_token %}
+          <div class="col-12 col-md-6">
+            <label class="form-label small">UPI VPA</label>
+            <input type="text" name="upi_vpa" class="form-control" value="{{ profile.upi_vpa }}" placeholder="name@bank">
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label small">Account holder</label>
+            <input type="text" name="bank_holder_name" class="form-control" value="{{ profile.bank_holder_name }}">
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label small">Account number</label>
+            <input type="text" name="bank_account_number" class="form-control" value="{{ profile.bank_account_number }}">
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label small">IFSC</label>
+            <input type="text" name="bank_ifsc" class="form-control" value="{{ profile.bank_ifsc }}">
+          </div>
+          <div class="col-12">
+            <button class="btn btn-outline-primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-body">
+        <div class="fw-bold mb-2">Recent Wallet Activity</div>
+        {% if transactions %}
+        <ul class="list-group">
+          {% for t in transactions %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>{{ t.get_kind_display }}{% if t.item %} — {{ t.item.title }}{% endif %}</span>
+            <span>₹ {{ t.amount }} <span class="text-muted small">(bal: ₹ {{ t.balance_after }})</span></span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="text-muted">No transactions.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

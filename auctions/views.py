@@ -10,10 +10,21 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django import forms
+from django.db import transaction
 
-from .models import AuctionItem, Bid, Payment, AuctionParticipant, Order, UserProfile
+from .models import (
+    AuctionItem,
+    Bid,
+    Payment,
+    AuctionParticipant,
+    Order,
+    UserProfile,
+    Wallet,
+    WalletTransaction,
+    WalletHold,
+)
 from urllib.parse import urlparse
-from .utils import append_ledger_block
+from .utils import append_ledger_block, get_available_balance, get_or_create_wallet
 from django.conf import settings
 from .blockchain import inr_to_token_quote, validate_native_transfer
 
@@ -172,8 +183,77 @@ def place_bid(request: HttpRequest, pk: int) -> HttpResponse:
         messages.error(request, f'Bid must be at least {min_allowed}.')
         return redirect('item_detail', pk=pk)
 
-    Bid.objects.create(item=item, bidder=request.user, amount=amount, is_active=True)
-    messages.success(request, 'Bid placed!')
+    # Wallet balance check and hold logic
+    existing_hold = WalletHold.objects.filter(item=item, user=request.user, status='active').first()
+    required_extra = amount - (existing_hold.amount if existing_hold else Decimal('0'))
+    if required_extra < 0:
+        required_extra = Decimal('0')
+    available = get_available_balance(request.user)
+    if available < required_extra:
+        messages.error(request, f'Insufficient wallet balance. Need ₹{required_extra} more. Recharge your wallet.')
+        return redirect('wallet')
+
+    with transaction.atomic():
+        # Re-evaluate highest and min_allowed within transaction for correctness
+        item_refreshed = AuctionItem.objects.select_for_update().get(pk=item.pk)
+        current_highest = item_refreshed.bids.filter(is_active=True).order_by('-amount', 'created_at').first()
+        new_min_allowed = item_refreshed.starting_price
+        if current_highest:
+            new_min_allowed = max(new_min_allowed, current_highest.amount + Decimal('1.00'))
+        if amount < new_min_allowed:
+            messages.error(request, f'Bid must be at least {new_min_allowed}.')
+            return redirect('item_detail', pk=pk)
+
+        # Reserve/adjust hold for this user
+        wallet = get_or_create_wallet(request.user)
+        hold = WalletHold.objects.select_for_update().filter(item=item_refreshed, user=request.user, status='active').first()
+        if hold:
+            delta = amount - hold.amount
+            if delta > 0:
+                hold.amount = amount
+                hold.save(update_fields=['amount', 'updated_at'])
+                WalletTransaction.objects.create(
+                    user=request.user,
+                    item=item_refreshed,
+                    kind='hold_reserve',
+                    amount=delta,
+                    balance_after=wallet.balance,
+                )
+        else:
+            hold = WalletHold.objects.create(user=request.user, item=item_refreshed, amount=amount, status='active')
+            WalletTransaction.objects.create(
+                user=request.user,
+                item=item_refreshed,
+                kind='hold_reserve',
+                amount=amount,
+                balance_after=wallet.balance,
+            )
+
+        # Release previous highest bidder's hold if any
+        if current_highest and current_highest.bidder_id != request.user.id:
+            prev_hold = WalletHold.objects.select_for_update().filter(item=item_refreshed, user=current_highest.bidder, status='active').first()
+            if prev_hold:
+                prev_hold.status = 'released'
+                prev_hold.save(update_fields=['status', 'updated_at'])
+                prev_wallet = get_or_create_wallet(current_highest.bidder)
+                WalletTransaction.objects.create(
+                    user=current_highest.bidder,
+                    item=item_refreshed,
+                    kind='hold_release',
+                    amount=prev_hold.amount,
+                    balance_after=prev_wallet.balance,
+                )
+
+        Bid.objects.create(item=item_refreshed, bidder=request.user, amount=amount, is_active=True)
+        append_ledger_block({
+            'type': 'bid_placed',
+            'item_id': item_refreshed.pk,
+            'user_id': request.user.pk,
+            'amount': str(amount),
+            'timestamp': timezone.now().isoformat(),
+        })
+
+    messages.success(request, 'Bid placed! Funds reserved until you are outbid or auction ends.')
     return redirect('item_detail', pk=pk)
 
 
@@ -272,6 +352,28 @@ def google_pay_callback(request: HttpRequest, pk: int) -> HttpResponse:
         })
         messages.success(request, 'Payment successful!')
         return redirect('item_detail', pk=payment.item_id)
+    elif payment.purpose == 'recharge':
+        # Credit wallet balance
+        wallet = get_or_create_wallet(request.user)
+        wallet.balance = (wallet.balance or Decimal('0')) + Decimal(payment.amount)
+        wallet.save(update_fields=['balance'])
+        WalletTransaction.objects.create(
+            user=request.user,
+            payment=payment,
+            kind='credit',
+            amount=payment.amount,
+            balance_after=wallet.balance,
+        )
+        append_ledger_block({
+            'type': 'wallet_recharge',
+            'user_id': request.user.pk,
+            'payment_id': payment.pk,
+            'amount': str(payment.amount),
+            'provider_ref': payment.provider_ref,
+            'timestamp': timezone.now().isoformat(),
+        })
+        messages.success(request, 'Recharge successful! Funds added to wallet.')
+        return redirect('wallet')
     else:
         # Fallback generic record
         append_ledger_block({
@@ -553,6 +655,19 @@ def presence_ping(request: HttpRequest, pk: int) -> HttpResponse:
                 highest_part.save(update_fields=['penalty_due'])
                 # Deactivate their active bids
                 item.bids.filter(bidder=highest.bidder, is_active=True).update(is_active=False)
+                # Release any active hold on this item for that user
+                hold = WalletHold.objects.filter(item=item, user=highest.bidder, status='active').first()
+                if hold:
+                    hold.status = 'released'
+                    hold.save(update_fields=['status', 'updated_at'])
+                    prev_wallet = get_or_create_wallet(highest.bidder)
+                    WalletTransaction.objects.create(
+                        user=highest.bidder,
+                        item=item,
+                        kind='hold_release',
+                        amount=hold.amount,
+                        balance_after=prev_wallet.balance,
+                    )
                 append_ledger_block({
                     'type': 'penalty_assessed',
                     'item_id': item.pk,
@@ -688,6 +803,27 @@ def crypto_pay_confirm(request: HttpRequest, pk: int) -> HttpResponse:
             })
             messages.success(request, 'Payment successful!')
             return redirect('item_detail', pk=payment.item_id)
+        elif payment.purpose == 'recharge':
+            wallet = get_or_create_wallet(request.user)
+            wallet.balance = (wallet.balance or Decimal('0')) + Decimal(payment.amount)
+            wallet.save(update_fields=['balance'])
+            WalletTransaction.objects.create(
+                user=request.user,
+                payment=payment,
+                kind='credit',
+                amount=payment.amount,
+                balance_after=wallet.balance,
+            )
+            append_ledger_block({
+                'type': 'wallet_recharge',
+                'user_id': request.user.pk,
+                'payment_id': payment.pk,
+                'amount': str(payment.amount),
+                'tx_hash': payment.tx_hash,
+                'timestamp': timezone.now().isoformat(),
+            })
+            messages.success(request, 'Recharge successful! Funds added to wallet.')
+            return redirect('wallet')
     else:
         messages.info(request, 'Waiting for confirmations. Please refresh later.')
         return redirect('crypto_pay_start', pk=pk)
@@ -713,20 +849,50 @@ def settle(request: HttpRequest, pk: int) -> HttpResponse:
         messages.info(request, 'No bids. Auction closed.')
         return redirect('item_detail', pk=pk)
 
-    order = Order.objects.create(item=item, buyer=highest.bidder, amount=highest.amount, status='paid', paid_at=timezone.now())
-    payment = Payment.objects.create(item=item, buyer=highest.bidder, amount=highest.amount, purpose='order', status='succeeded', provider_ref=f"ORD-{order.pk}")
-    append_ledger_block({
-        'type': 'order_paid',
-        'item_id': item.pk,
-        'buyer_id': highest.bidder.pk,
-        'order_id': order.pk,
-        'payment_id': payment.pk,
-        'amount': str(payment.amount),
-        'timestamp': timezone.now().isoformat(),
-    })
-    item.is_settled = True
-    item.is_active = False
-    item.save(update_fields=['is_settled', 'is_active'])
+    with transaction.atomic():
+        # Consume hold if available, else fall back to bank debit simulation
+        wallet = get_or_create_wallet(highest.bidder)
+        hold = WalletHold.objects.select_for_update().filter(item=item, user=highest.bidder, status='active').first()
+        paid_via = 'wallet'
+        if hold and wallet.balance >= hold.amount:
+            wallet.balance = (wallet.balance or Decimal('0')) - hold.amount
+            wallet.save(update_fields=['balance'])
+            hold.status = 'consumed'
+            hold.save(update_fields=['status', 'updated_at'])
+            WalletTransaction.objects.create(
+                user=highest.bidder,
+                item=item,
+                kind='hold_consume',
+                amount=hold.amount,
+                balance_after=wallet.balance,
+            )
+        else:
+            paid_via = 'bank'
+
+        order = Order.objects.create(item=item, buyer=highest.bidder, amount=highest.amount, status='paid', paid_at=timezone.now())
+        payment = Payment.objects.create(
+            item=item,
+            buyer=highest.bidder,
+            amount=highest.amount,
+            purpose='order',
+            status='succeeded',
+            provider='bank' if paid_via == 'bank' else 'wallet',
+            provider_ref=f"ORD-{order.pk}"
+        )
+        append_ledger_block({
+            'type': 'order_paid',
+            'item_id': item.pk,
+            'buyer_id': highest.bidder.pk,
+            'order_id': order.pk,
+            'payment_id': payment.pk,
+            'amount': str(payment.amount),
+            'paid_via': paid_via,
+            'timestamp': timezone.now().isoformat(),
+        })
+        item.is_settled = True
+        item.is_active = False
+        item.save(update_fields=['is_settled', 'is_active'])
+
     messages.success(request, 'Winner charged automatically and order created.')
     return redirect('item_detail', pk=pk)
 
@@ -742,3 +908,87 @@ def history(request: HttpRequest) -> HttpResponse:
         'payments': payments,
         'bids': bids,
     })
+
+
+@login_required
+def wallet_view(request: HttpRequest) -> HttpResponse:
+    wallet = get_or_create_wallet(request.user)
+    from .models import WalletHold, WalletTransaction, UserProfile
+    holds = WalletHold.objects.filter(user=request.user).select_related('item').order_by('-created_at')
+    transactions = WalletTransaction.objects.filter(user=request.user).select_related('item', 'payment').order_by('-created_at')[:100]
+    available = get_available_balance(request.user)
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    return render(request, 'auctions/wallet.html', {
+        'wallet': wallet,
+        'available': available,
+        'holds': holds,
+        'transactions': transactions,
+        'profile': profile,
+    })
+
+
+@login_required
+def wallet_recharge(request: HttpRequest) -> HttpResponse:
+    if request.method != 'POST':
+        return redirect('wallet')
+    try:
+        amount = Decimal(request.POST.get('amount', '0'))
+    except Exception:
+        messages.error(request, 'Invalid amount.')
+        return redirect('wallet')
+    if amount <= 0:
+        messages.error(request, 'Amount must be positive.')
+        return redirect('wallet')
+    method = (request.POST.get('method') or 'upi').lower()
+    provider = 'google_pay'
+    if method == 'card':
+        provider = 'card'
+    elif method == 'bank':
+        provider = 'bank'
+    elif method == 'crypto':
+        provider = 'blockchain'
+
+    payment = Payment.objects.create(
+        item=None,
+        buyer=request.user,
+        amount=amount,
+        purpose='recharge',
+        status='pending',
+        provider=provider,
+    )
+    if provider == 'blockchain':
+        return redirect('crypto_pay_start', pk=payment.pk)
+    else:
+        return redirect('google_pay_start', pk=payment.pk)
+
+
+@login_required
+def update_payment_methods(request: HttpRequest) -> HttpResponse:
+    if request.method != 'POST':
+        return redirect('wallet')
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    # Update simple fields; basic sanitization
+    upi_vpa = (request.POST.get('upi_vpa') or '').strip()
+    bank_holder_name = (request.POST.get('bank_holder_name') or '').strip()
+    bank_account_number = (request.POST.get('bank_account_number') or '').strip()
+    bank_ifsc = (request.POST.get('bank_ifsc') or '').strip().upper()
+
+    changed = False
+    if upi_vpa != profile.upi_vpa:
+        profile.upi_vpa = upi_vpa
+        changed = True
+    if bank_holder_name != profile.bank_holder_name:
+        profile.bank_holder_name = bank_holder_name
+        changed = True
+    if bank_account_number != profile.bank_account_number:
+        profile.bank_account_number = bank_account_number
+        changed = True
+    if bank_ifsc != profile.bank_ifsc:
+        profile.bank_ifsc = bank_ifsc
+        changed = True
+    if changed:
+        profile.save(update_fields=['upi_vpa', 'bank_holder_name', 'bank_account_number', 'bank_ifsc'])
+        messages.success(request, 'Payment methods updated.')
+    else:
+        messages.info(request, 'No changes detected.')
+    return redirect('wallet')

@@ -80,7 +80,7 @@ class AuctionParticipant(models.Model):
 
 
 class Payment(models.Model):
-    item = models.ForeignKey(AuctionItem, on_delete=models.CASCADE, related_name='payments')
+    item = models.ForeignKey(AuctionItem, on_delete=models.CASCADE, related_name='payments', null=True, blank=True)
     buyer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='payments')
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     purpose = models.CharField(max_length=20, default='order')  # order, seat, penalty, buy_now
