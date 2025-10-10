@@ -44,7 +44,9 @@ def get_tx_receipt(tx_hash: str) -> Optional[Dict[str, Any]]:
     w3 = get_web3()
     try:
         receipt = w3.eth.get_transaction_receipt(tx_hash)
-    except Exception:
+    except (ValueError, TypeError, Exception) as e:
+        # Log the error for debugging but don't expose it to user
+        print(f"Error getting transaction receipt: {e}")
         return None
     if receipt is None:
         return None
