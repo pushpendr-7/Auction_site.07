@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.conf import settings
+import uuid
 
 User = get_user_model()
 
@@ -50,6 +51,7 @@ class Bid(models.Model):
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
+    tx_id = models.CharField(max_length=36, unique=True, default=uuid.uuid4, editable=False)
 
     class Meta:
         ordering = ['-created_at']
@@ -89,6 +91,7 @@ class Payment(models.Model):
     provider = models.CharField(max_length=50, default='google_pay')
     provider_ref = models.CharField(max_length=200, blank=True)
     status = models.CharField(max_length=30, default='pending')
+    transaction_id = models.CharField(max_length=36, unique=True, default=uuid.uuid4, editable=False)
     # Snapshot of recipient bank/UPI details at the time of payment (for offline/bank flows)
     recipient_upi_vpa = models.CharField(max_length=120, blank=True, default='')
     recipient_bank_holder_name = models.CharField(max_length=120, blank=True, default='')
