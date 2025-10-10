@@ -1,260 +1,327 @@
-import hashlib
-from typing import Dict, Any
 from decimal import Decimal
 from django.db import transaction
-from django.db.models import Sum
 from django.utils import timezone
+from django.conf import settings
+import hashlib
+import json
 from .models import (
-    LedgerBlock,
-    Wallet,
-    WalletHold,
-    Payment,
-    AuctionParticipant,
-    Order,
+    AuctionItem, Bid, Payment, AuctionParticipant, Order, 
+    UserProfile, Wallet, WalletTransaction, WalletHold, LedgerBlock
 )
+import secrets
+import string
+from cryptography.fernet import Fernet
+import base64
+import os
 
 
-def compute_hash(data: str) -> str:
-    return hashlib.sha256(data.encode('utf-8')).hexdigest()
+def append_ledger_block(data):
+    """Append a new block to the ledger with the given data."""
+    # Get the last block to calculate the hash
+    last_block = LedgerBlock.objects.order_by('-index').first()
+    
+    if last_block:
+        index = last_block.index + 1
+        previous_hash = last_block.hash
+    else:
+        index = 0
+        previous_hash = "0"
+    
+    # Create the block data
+    block_data = {
+        'index': index,
+        'timestamp': timezone.now().isoformat(),
+        'previous_hash': previous_hash,
+        'data': data,
+        'nonce': 0
+    }
+    
+    # Simple proof of work (find a hash starting with "0000")
+    while True:
+        block_string = json.dumps(block_data, sort_keys=True)
+        block_hash = hashlib.sha256(block_string.encode()).hexdigest()
+        if block_hash.startswith("0000"):
+            break
+        block_data['nonce'] += 1
+    
+    # Create and save the block
+    block = LedgerBlock.objects.create(
+        index=index,
+        previous_hash=previous_hash,
+        data=data,
+        nonce=block_data['nonce'],
+        hash=block_hash
+    )
+    
+    return block
 
 
-def append_ledger_block(data: Dict[str, Any]) -> LedgerBlock:
-    with transaction.atomic():
-        last_block = LedgerBlock.objects.order_by('-index').first()
-        index = 0 if last_block is None else last_block.index + 1
-        previous_hash = '0' * 64 if last_block is None else last_block.hash
-        payload = f"{index}|{previous_hash}|{data}"
-        block_hash = compute_hash(payload)
-        block = LedgerBlock.objects.create(
-            index=index,
-            previous_hash=previous_hash,
-            data=data,
-            hash=block_hash,
+def get_available_balance(user):
+    """Get available wallet balance excluding holds."""
+    wallet = get_or_create_wallet(user)
+    total_holds = sum(
+        hold.amount for hold in WalletHold.objects.filter(
+            user=user, status='active'
         )
-        return block
+    )
+    return wallet.balance - total_holds
 
 
-def get_or_create_wallet(user) -> Wallet:
-    """Return a wallet for the user, creating if missing."""
-    wallet, _ = Wallet.objects.get_or_create(user=user)
+def get_or_create_wallet(user):
+    """Get or create wallet for user."""
+    wallet, created = Wallet.objects.get_or_create(user=user)
     return wallet
 
 
-def get_active_holds_total(user) -> Decimal:
-    """Sum of active holds across all items for the user."""
-    agg = WalletHold.objects.filter(user=user, status='active').aggregate(total=Sum('amount'))
-    total = agg.get('total') or Decimal('0')
-    return Decimal(total)
-
-
-def get_available_balance(user) -> Decimal:
-    """User's spendable balance, excluding active holds."""
-    wallet = get_or_create_wallet(user)
-    holds_total = get_active_holds_total(user)
-    balance = wallet.balance or Decimal('0')
-    available = balance - holds_total
-    return max(available, Decimal('0'))  # Ensure non-negative balance
-
-
-def apply_payment_effects(payment: Payment) -> bool:
-    """Idempotently apply post-payment effects.
-    Returns True if effects were applied in this call, False if already processed.
-    """
+def apply_payment_effects(payment):
+    """Apply the effects of a successful payment."""
+    if payment.processed_at:
+        return  # Already processed
+    
     with transaction.atomic():
-        fresh = Payment.objects.select_for_update().get(pk=payment.pk)
-        if fresh.processed_at:
-            return False
-
-        # Mark processed upfront to enforce idempotency even if subsequent steps repeat
-        fresh.processed_at = timezone.now()
-        fresh.save(update_fields=['processed_at'])
-
-        # Seat booking
-        if fresh.purpose == 'seat' and fresh.item_id and fresh.buyer_id:
-            participant = AuctionParticipant.objects.get(item_id=fresh.item_id, user_id=fresh.buyer_id)
-            participant.is_booked = True
-            participant.paid = True
-            participant.paid_at = timezone.now()
-            # Ensure unique code per item
-            from .views import _generate_code  # local import to avoid cycles at module import
-            code = _generate_code()
-            while AuctionParticipant.objects.filter(item_id=fresh.item_id, booking_code=code).exists():
-                code = _generate_code()
-            participant.booking_code = code
-            participant.save()
-            append_ledger_block({
-                'type': 'seat_booking',
-                'item_id': fresh.item_id,
-                'user_id': fresh.buyer_id,
-                'payment_id': fresh.pk,
-                'amount': str(fresh.amount),
-                'provider_ref': fresh.provider_ref,
-                'tx_hash': fresh.tx_hash,
-                'transaction_id': fresh.transaction_id,
-                'timestamp': timezone.now().isoformat(),
-            })
-
-        # Penalty clear
-        elif fresh.purpose == 'penalty' and fresh.item_id and fresh.buyer_id:
-            participant = AuctionParticipant.objects.get(item_id=fresh.item_id, user_id=fresh.buyer_id)
-            participant.penalty_due = False
-            participant.save(update_fields=['penalty_due'])
-            append_ledger_block({
-                'type': 'penalty_paid',
-                'item_id': fresh.item_id,
-                'user_id': fresh.buyer_id,
-                'payment_id': fresh.pk,
-                'amount': str(fresh.amount),
-                'provider_ref': fresh.provider_ref,
-                'tx_hash': fresh.tx_hash,
-                'transaction_id': fresh.transaction_id,
-                'timestamp': timezone.now().isoformat(),
-            })
-
-        # Order or buy-now
-        elif fresh.purpose in ('order', 'buy_now') and fresh.item_id and fresh.buyer_id:
-            Order.objects.update_or_create(
-                item_id=fresh.item_id,
-                buyer_id=fresh.buyer_id,
-                defaults={'amount': fresh.amount, 'status': 'paid', 'paid_at': timezone.now()},
-            )
-            append_ledger_block({
-                'type': 'order_paid',
-                'item_id': fresh.item_id,
-                'buyer_id': fresh.buyer_id,
-                'payment_id': fresh.pk,
-                'amount': str(fresh.amount),
-                'provider_ref': fresh.provider_ref,
-                'tx_hash': fresh.tx_hash,
-                'transaction_id': fresh.transaction_id,
-                'timestamp': timezone.now().isoformat(),
-            })
-
-        # Wallet recharge
-        elif fresh.purpose == 'recharge' and fresh.buyer_id:
-            wallet = get_or_create_wallet(fresh.buyer)
-            wallet.balance = (wallet.balance or Decimal('0')) + Decimal(fresh.amount)
+        if payment.purpose == 'recharge':
+            # Add funds to wallet
+            wallet = get_or_create_wallet(payment.buyer)
+            wallet.balance += payment.amount
             wallet.save(update_fields=['balance'])
-            from .models import WalletTransaction
+            
             WalletTransaction.objects.create(
-                user=fresh.buyer,
-                payment=fresh,
+                user=payment.buyer,
+                payment=payment,
                 kind='credit',
-                amount=fresh.amount,
+                amount=payment.amount,
                 balance_after=wallet.balance,
             )
-            append_ledger_block({
-                'type': 'wallet_recharge',
-                'user_id': fresh.buyer_id,
-                'payment_id': fresh.pk,
-                'amount': str(fresh.amount),
-                'provider_ref': fresh.provider_ref,
-                'tx_hash': fresh.tx_hash,
-                'transaction_id': fresh.transaction_id,
-                'timestamp': timezone.now().isoformat(),
-            })
-
-        else:
-            # Generic record for unknown purpose
-            append_ledger_block({
-                'type': 'payment',
-                'payment_id': fresh.pk,
-                'item_id': fresh.item_id,
-                'buyer_id': fresh.buyer_id,
-                'amount': str(fresh.amount),
-                'provider_ref': fresh.provider_ref,
-                'tx_hash': fresh.tx_hash,
-                'transaction_id': fresh.transaction_id,
-                'timestamp': timezone.now().isoformat(),
-            })
-
-        return True
-
-
-def settle_auction_item(item) -> bool:
-    """Idempotently settle a single ended auction item.
-    Returns True if settlement happened, False otherwise.
-    """
-    from .models import WalletTransaction, WalletHold
-    from django.contrib.auth import get_user_model
-    from .models import UserProfile
-
-    with transaction.atomic():
-        fresh_item = type(item).objects.select_for_update().get(pk=item.pk)
-        if fresh_item.is_settled:
-            return False
-        if timezone.now() < fresh_item.ends_at:
-            return False
-        highest = fresh_item.bids.filter(is_active=True).order_by('-amount', 'created_at').first()
-        if not highest:
-            fresh_item.is_settled = True
-            fresh_item.is_active = False
-            fresh_item.save(update_fields=['is_settled', 'is_active'])
-            return True
-
-        # Try to consume hold; fallback to auto-debit if user consented
-        wallet = get_or_create_wallet(highest.bidder)
-        hold = WalletHold.objects.select_for_update().filter(
-            item=fresh_item, user=highest.bidder, status='active'
-        ).first()
-        paid_via = 'wallet'
-        amount = highest.amount
         
-        try:
-            if hold and wallet.balance >= hold.amount:
-                wallet.balance = (wallet.balance or Decimal('0')) - hold.amount
-                wallet.save(update_fields=['balance'])
-                hold.status = 'consumed'
-                hold.save(update_fields=['status', 'updated_at'])
-                WalletTransaction.objects.create(
-                    user=highest.bidder,
-                    item=fresh_item,
-                    kind='hold_consume',
-                    amount=hold.amount,
-                    balance_after=wallet.balance,
-                )
-            else:
-                # Simulate auto-debit only if explicitly consented by user
-                profile, _ = UserProfile.objects.get_or_create(user=highest.bidder)
-                if profile.auto_debit_consent:
-                    paid_via = 'bank'
-                else:
-                    # Without consent, leave payment pending for manual completion
-                    paid_via = 'bank_pending'
-        except Exception as e:
-            # Log error and fallback to manual payment
-            print(f"Error processing wallet payment for user {highest.bidder.id}: {e}")
-            paid_via = 'bank_pending'
+        elif payment.purpose == 'seat':
+            # Book seat for auction
+            participant = AuctionParticipant.objects.filter(
+                item=payment.item, user=payment.buyer
+            ).first()
+            if participant:
+                participant.is_booked = True
+                participant.paid = True
+                participant.paid_at = timezone.now()
+                participant.booking_code = _generate_booking_code()
+                participant.save(update_fields=['is_booked', 'paid', 'paid_at', 'booking_code'])
+        
+        elif payment.purpose == 'penalty':
+            # Clear penalty
+            participant = AuctionParticipant.objects.filter(
+                item=payment.item, user=payment.buyer
+            ).first()
+            if participant:
+                participant.penalty_due = False
+                participant.save(update_fields=['penalty_due'])
+        
+        elif payment.purpose in ('order', 'buy_now'):
+            # Create order
+            Order.objects.create(
+                item=payment.item,
+                buyer=payment.buyer,
+                amount=payment.amount,
+                status='paid',
+                paid_at=timezone.now(),
+            )
+        
+        # Mark payment as processed
+        payment.processed_at = timezone.now()
+        payment.save(update_fields=['processed_at'])
 
+
+def settle_auction_item(item):
+    """Settle an auction item and create order for winner."""
+    if item.is_settled:
+        return False
+    
+    highest_bid = item.bids.filter(is_active=True).order_by('-amount', 'created_at').first()
+    if not highest_bid:
+        return False
+    
+    with transaction.atomic():
+        # Create order for winner
         order = Order.objects.create(
-            item=fresh_item,
-            buyer=highest.bidder,
-            amount=amount,
-            status='paid' if paid_via in ('wallet', 'bank') else 'created',
-            paid_at=timezone.now() if paid_via in ('wallet', 'bank') else None,
+            item=item,
+            buyer=highest_bid.bidder,
+            amount=highest_bid.amount,
+            status='paid',
+            paid_at=timezone.now(),
         )
-        payment = Payment.objects.create(
-            item=fresh_item,
-            buyer=highest.bidder,
-            amount=amount,
-            purpose='order',
-            status='succeeded' if paid_via in ('wallet', 'bank') else 'pending',
-            provider='bank' if paid_via.startswith('bank') else 'wallet',
-            provider_ref=f"ORD-{order.pk}",
-            processed_at=timezone.now() if paid_via in ('wallet', 'bank') else None,
+        
+        # Consume the hold amount
+        hold = WalletHold.objects.filter(
+            item=item, user=highest_bid.bidder, status='active'
+        ).first()
+        if hold:
+            hold.status = 'consumed'
+            hold.save(update_fields=['status', 'updated_at'])
+            
+            # Deduct from wallet
+            wallet = get_or_create_wallet(highest_bid.bidder)
+            wallet.balance -= hold.amount
+            wallet.save(update_fields=['balance'])
+            
+            WalletTransaction.objects.create(
+                user=highest_bid.bidder,
+                item=item,
+                kind='hold_consume',
+                amount=hold.amount,
+                balance_after=wallet.balance,
+            )
+        
+        # Mark item as settled
+        item.is_settled = True
+        item.is_active = False
+        item.save(update_fields=['is_settled', 'is_active'])
+        
+        # Release all other holds
+        WalletHold.objects.filter(
+            item=item, status='active'
+        ).exclude(user=highest_bid.bidder).update(
+            status='released',
+            updated_at=timezone.now()
         )
+        
+        # Add ledger block
         append_ledger_block({
-            'type': 'order_paid' if paid_via in ('wallet', 'bank') else 'order_created',
-            'item_id': fresh_item.pk,
-            'buyer_id': highest.bidder.pk,
+            'type': 'auction_settled',
+            'item_id': item.pk,
+            'winner_id': highest_bid.bidder.pk,
+            'winning_amount': str(highest_bid.amount),
             'order_id': order.pk,
-            'payment_id': payment.pk,
-            'amount': str(payment.amount),
-            'paid_via': paid_via,
-            'transaction_id': payment.transaction_id,
             'timestamp': timezone.now().isoformat(),
         })
-        fresh_item.is_settled = True
-        fresh_item.is_active = False
-        fresh_item.save(update_fields=['is_settled', 'is_active'])
-        return True
+    
+    return True
+
+
+def _generate_booking_code(length=8):
+    """Generate a unique booking code."""
+    chars = string.ascii_uppercase.replace('O', '').replace('I', '').replace('L', '') + \
+            string.digits.replace('0', '').replace('1', '')
+    return ''.join(secrets.choices(chars, k=length))
+
+
+class DataEncryption:
+    """Utility class for encrypting sensitive user data"""
+    
+    @staticmethod
+    def get_encryption_key():
+        """Get or create encryption key"""
+        key = getattr(settings, 'DATA_ENCRYPTION_KEY', None)
+        if not key:
+            # Generate a new key if none exists
+            key = Fernet.generate_key()
+            # In production, store this securely
+            print(f"WARNING: Generated new encryption key. Store this securely: {key.decode()}")
+        return key
+    
+    @staticmethod
+    def encrypt_data(data):
+        """Encrypt sensitive data"""
+        if not data:
+            return data
+        
+        key = DataEncryption.get_encryption_key()
+        f = Fernet(key)
+        
+        if isinstance(data, str):
+            return f.encrypt(data.encode()).decode()
+        elif isinstance(data, dict):
+            # Encrypt string values in dictionary
+            encrypted_data = {}
+            for k, v in data.items():
+                if isinstance(v, str) and v:
+                    encrypted_data[k] = f.encrypt(v.encode()).decode()
+                else:
+                    encrypted_data[k] = v
+            return encrypted_data
+        else:
+            return data
+    
+    @staticmethod
+    def decrypt_data(encrypted_data):
+        """Decrypt sensitive data"""
+        if not encrypted_data:
+            return encrypted_data
+        
+        key = DataEncryption.get_encryption_key()
+        f = Fernet(key)
+        
+        try:
+            if isinstance(encrypted_data, str):
+                return f.decrypt(encrypted_data.encode()).decode()
+            elif isinstance(encrypted_data, dict):
+                # Decrypt string values in dictionary
+                decrypted_data = {}
+                for k, v in encrypted_data.items():
+                    if isinstance(v, str) and v:
+                        try:
+                            decrypted_data[k] = f.decrypt(v.encode()).decode()
+                        except:
+                            decrypted_data[k] = v  # Return original if decryption fails
+                    else:
+                        decrypted_data[k] = v
+                return decrypted_data
+            else:
+                return encrypted_data
+        except Exception:
+            # Return original data if decryption fails
+            return encrypted_data
+
+
+def encrypt_sensitive_user_data(user_data):
+    """Encrypt sensitive fields in user data"""
+    sensitive_fields = [
+        'email', 'phone', 'bank_account_number', 'upi_vpa',
+        'bank_holder_name', 'bank_ifsc'
+    ]
+    
+    if isinstance(user_data, dict):
+        for field in sensitive_fields:
+            if field in user_data and user_data[field]:
+                user_data[field] = DataEncryption.encrypt_data(user_data[field])
+    
+    return user_data
+
+
+def create_permanent_data_archive(user_data, archive_path):
+    """Create a permanent archive of user data with encryption"""
+    # Encrypt sensitive data
+    encrypted_data = encrypt_sensitive_user_data(user_data)
+    
+    # Add metadata
+    archive_data = {
+        'archive_created': timezone.now().isoformat(),
+        'data_encrypted': True,
+        'encryption_method': 'Fernet',
+        'user_data': encrypted_data,
+    }
+    
+    # Save to file
+    with open(archive_path, 'w', encoding='utf-8') as f:
+        json.dump(archive_data, f, indent=2, default=str)
+    
+    return archive_path
+
+
+def verify_data_integrity(data):
+    """Verify data integrity using checksums"""
+    data_string = json.dumps(data, sort_keys=True, default=str)
+    checksum = hashlib.sha256(data_string.encode()).hexdigest()
+    return checksum
+
+
+def create_data_backup_with_verification(data, backup_path):
+    """Create backup with integrity verification"""
+    # Create backup
+    with open(backup_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, default=str)
+    
+    # Calculate and store checksum
+    checksum = verify_data_integrity(data)
+    checksum_path = backup_path + '.checksum'
+    with open(checksum_path, 'w') as f:
+        f.write(checksum)
+    
+    return backup_path, checksum

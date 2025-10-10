@@ -2,6 +2,9 @@ from decimal import Decimal, InvalidOperation
 import random
 import string
 import secrets
+import json
+import zipfile
+import io
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -995,3 +998,79 @@ def update_payment_methods(request: HttpRequest) -> HttpResponse:
     else:
         messages.info(request, 'No changes detected.')
     return redirect('wallet')
+
+
+@login_required
+def export_user_data(request: HttpRequest) -> HttpResponse:
+    """Export all user data as a downloadable JSON file"""
+    user = request.user
+    
+    # Get all user data
+    user_data = {
+        'export_timestamp': timezone.now().isoformat(),
+        'user_info': {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'date_joined': user.date_joined.isoformat() if user.date_joined else None,
+            'last_login': user.last_login.isoformat() if user.last_login else None,
+            'is_active': user.is_active,
+            'is_staff': user.is_staff,
+        },
+        'profile': self.serialize_model_data(
+            UserProfile.objects.filter(user=user)
+        ),
+        'wallet': self.serialize_model_data(
+            Wallet.objects.filter(user=user)
+        ),
+        'wallet_transactions': self.serialize_model_data(
+            WalletTransaction.objects.filter(user=user)
+        ),
+        'wallet_holds': self.serialize_model_data(
+            WalletHold.objects.filter(user=user)
+        ),
+        'owned_items': self.serialize_model_data(
+            AuctionItem.objects.filter(owner=user)
+        ),
+        'bids': self.serialize_model_data(
+            Bid.objects.filter(bidder=user)
+        ),
+        'payments': self.serialize_model_data(
+            Payment.objects.filter(buyer=user)
+        ),
+        'payments_received': self.serialize_model_data(
+            Payment.objects.filter(recipient=user)
+        ),
+        'orders': self.serialize_model_data(
+            Order.objects.filter(buyer=user)
+        ),
+        'auction_participations': self.serialize_model_data(
+            AuctionParticipant.objects.filter(user=user)
+        ),
+    }
+    
+    # Create JSON response
+    response = HttpResponse(
+        json.dumps(user_data, indent=2, default=str),
+        content_type='application/json'
+    )
+    response['Content-Disposition'] = f'attachment; filename="user_data_{user.username}_{timezone.now().strftime("%Y%m%d_%H%M%S")}.json"'
+    
+    return response
+
+
+def serialize_model_data(queryset):
+    """Serialize model data to dictionary format"""
+    data = []
+    for obj in queryset:
+        obj_dict = {}
+        for field in obj._meta.fields:
+            value = getattr(obj, field.name)
+            if hasattr(value, 'isoformat'):  # Handle datetime fields
+                obj_dict[field.name] = value.isoformat()
+            else:
+                obj_dict[field.name] = value
+        data.append(obj_dict)
+    return data

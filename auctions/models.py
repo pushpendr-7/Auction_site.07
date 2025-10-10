@@ -230,3 +230,72 @@ class WalletHold(models.Model):
 
     def __str__(self) -> str:
         return f"Hold ₹{self.amount} on item {self.item_id} ({self.status})"
+
+
+class DataBackup(models.Model):
+    """Model to track data backups and ensure permanent storage"""
+    backup_type = models.CharField(max_length=50, choices=[
+        ('user_data', 'User Data'),
+        ('system_full', 'Full System'),
+        ('incremental', 'Incremental'),
+        ('scheduled', 'Scheduled'),
+    ])
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    backup_file_path = models.CharField(max_length=500)
+    backup_size = models.BigIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_encrypted = models.BooleanField(default=True)
+    retention_until = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=20, default='completed', choices=[
+        ('pending', 'Pending'),
+        ('in_progress', 'In Progress'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ])
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self) -> str:
+        return f"Backup {self.backup_type} - {self.created_at.strftime('%Y-%m-%d %H:%M')}"
+
+
+class DataRetentionPolicy(models.Model):
+    """Model to define data retention policies for different data types"""
+    data_type = models.CharField(max_length=50, unique=True)
+    retention_days = models.PositiveIntegerField()
+    auto_delete = models.BooleanField(default=False)
+    backup_before_delete = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"Retention Policy for {self.data_type} - {self.retention_days} days"
+
+
+class UserDataExport(models.Model):
+    """Track user data exports for compliance and audit"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    export_type = models.CharField(max_length=50, choices=[
+        ('full', 'Full Data Export'),
+        ('partial', 'Partial Export'),
+        ('gdpr', 'GDPR Request'),
+    ])
+    requested_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    file_path = models.CharField(max_length=500, blank=True)
+    status = models.CharField(max_length=20, default='pending', choices=[
+        ('pending', 'Pending'),
+        ('processing', 'Processing'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ])
+    download_count = models.PositiveIntegerField(default=0)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ['-requested_at']
+
+    def __str__(self) -> str:
+        return f"Export for {self.user.username} - {self.export_type}"

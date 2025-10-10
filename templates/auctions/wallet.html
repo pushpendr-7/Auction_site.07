@@ -98,6 +98,20 @@
         {% endif %}
       </div>
     </div>
+
+    <div class="card mt-3">
+      <div class="card-body">
+        <div class="fw-bold mb-2">Data Management</div>
+        <div class="d-grid gap-2">
+          <a href="{% url 'export_user_data' %}" class="btn btn-outline-success">
+            <i class="bi bi-download"></i> Export My Data
+          </a>
+          <small class="text-muted">
+            Download all your data including profile, transactions, bids, and orders in JSON format.
+          </small>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}

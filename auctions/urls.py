@@ -34,4 +34,5 @@ urlpatterns = [
     path('wallet/', views.wallet_view, name='wallet'),
     path('wallet/recharge/', views.wallet_recharge, name='wallet_recharge'),
     path('wallet/payment-methods/', views.update_payment_methods, name='update_payment_methods'),
+    path('export-data/', views.export_user_data, name='export_user_data'),
 ]
