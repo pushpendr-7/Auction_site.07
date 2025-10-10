@@ -18,9 +18,12 @@
 <h2 class="h6 mt-4">Payments</h2>
 <ul class="list-group mb-3">
   {% for p in payments %}
-  <li class="list-group-item">
-    ₹{{ p.amount }} — {{ p.purpose|title }} — <span class="badge text-bg-secondary">{{ p.status }}</span>
-    <small class="text-muted ms-2">{{ p.created_at|date:"M d, Y H:i" }}</small>
+  <li class="list-group-item d-flex justify-content-between align-items-center">
+    <span>
+      ₹{{ p.amount }} — {{ p.purpose|title }} — <span class="badge text-bg-secondary">{{ p.status }}</span>
+      <small class="text-muted ms-2">{{ p.created_at|date:"M d, Y H:i" }}</small>
+    </span>
+    <span class="small text-monospace text-muted">{{ p.transaction_id }}</span>
   </li>
   {% empty %}
   <li class="list-group-item">No payments yet.</li>

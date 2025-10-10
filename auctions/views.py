@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django import forms
 from django.db import transaction
+from django.views.decorators.http import require_GET
 
 from .models import (
     AuctionItem,
@@ -244,12 +245,13 @@ def place_bid(request: HttpRequest, pk: int) -> HttpResponse:
                     balance_after=prev_wallet.balance,
                 )
 
-        Bid.objects.create(item=item_refreshed, bidder=request.user, amount=amount, is_active=True)
+        new_bid = Bid.objects.create(item=item_refreshed, bidder=request.user, amount=amount, is_active=True)
         append_ledger_block({
             'type': 'bid_placed',
             'item_id': item_refreshed.pk,
             'user_id': request.user.pk,
             'amount': str(amount),
+            'bid_tx_id': new_bid.tx_id,
             'timestamp': timezone.now().isoformat(),
         })
 
@@ -433,6 +435,7 @@ def bank_pay_confirm(request: HttpRequest, pk: int) -> HttpResponse:
             'payment_id': payment.pk,
             'amount': str(payment.amount),
             'provider_ref': payment.provider_ref,
+            'transaction_id': payment.transaction_id,
             'timestamp': timezone.now().isoformat(),
         })
         messages.success(request, 'Recharge successful! Funds added to wallet.')
@@ -537,6 +540,7 @@ def google_pay_callback(request: HttpRequest, pk: int) -> HttpResponse:
             'payment_id': payment.pk,
             'amount': str(payment.amount),
             'provider_ref': payment.provider_ref,
+            'transaction_id': payment.transaction_id,
             'timestamp': timezone.now().isoformat(),
         })
         messages.success(request, 'Recharge successful! Funds added to wallet.')
@@ -767,6 +771,20 @@ def call_activity(request: HttpRequest, pk: int) -> JsonResponse:
         'bids': bids,
         'server_time': timezone.now().isoformat(),
     })
+
+
+@require_GET
+def public_bids(request: HttpRequest, pk: int) -> JsonResponse:
+    """Public endpoint to show transparent bid history for an item.
+    Includes bidder username, amount, timestamp, and whether active.
+    """
+    item = get_object_or_404(AuctionItem, pk=pk)
+    bids = list(
+        item.bids.select_related('bidder')
+        .order_by('-created_at')[:100]
+        .values('bidder__username', 'amount', 'created_at', 'is_active')
+    )
+    return JsonResponse({'item_id': item.pk, 'bids': bids, 'count': len(bids)})
 
 
 @login_required
@@ -1005,6 +1023,7 @@ def crypto_pay_confirm(request: HttpRequest, pk: int) -> HttpResponse:
                 'payment_id': payment.pk,
                 'amount': str(payment.amount),
                 'tx_hash': payment.tx_hash,
+                'transaction_id': payment.transaction_id,
                 'timestamp': timezone.now().isoformat(),
             })
             messages.success(request, 'Recharge successful! Funds added to wallet.')
@@ -1072,6 +1091,7 @@ def settle(request: HttpRequest, pk: int) -> HttpResponse:
             'payment_id': payment.pk,
             'amount': str(payment.amount),
             'paid_via': paid_via,
+            'transaction_id': payment.transaction_id,
             'timestamp': timezone.now().isoformat(),
         })
         item.is_settled = True
@@ -1120,6 +1140,10 @@ def wallet_recharge(request: HttpRequest) -> HttpResponse:
         amount = Decimal(request.POST.get('amount', '0'))
     except Exception:
         messages.error(request, 'Invalid amount.')
+        return redirect('wallet')
+    # Per-transaction recharge limit (₹10,000)
+    if amount > Decimal('10000.00'):
+        messages.error(request, 'Recharge limit per transaction is ₹10,000.')
         return redirect('wallet')
     if amount <= 0:
         messages.error(request, 'Amount must be positive.')
