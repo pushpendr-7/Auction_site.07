@@ -464,27 +464,53 @@ def bank_pay_confirm(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect('wallet')
 
 
-@login_required
 def google_pay_callback(request: HttpRequest, pk: int) -> HttpResponse:
-    payment = get_object_or_404(Payment, pk=pk, buyer=request.user)
-    # Mark payment succeeded
-    payment.status = 'succeeded'
-    payment.save(update_fields=['status'])
-    apply_payment_effects(payment)
-    if payment.purpose == 'seat':
-        messages.success(request, 'Seat booked successfully.')
+    """Handle payment provider callback.
+
+    - Works for both logged-in buyers and provider callbacks (via token or ref).
+    - Never raises 500s due to missing auth or item; responds/redirects safely.
+    """
+    payment = get_object_or_404(Payment, pk=pk)
+
+    # Authorize: buyer session OR secure token/ref from provider
+    token = (request.GET.get('token') or '').strip()
+    ref = (request.GET.get('ref') or '').strip()
+    is_buyer = request.user.is_authenticated and payment.buyer_id == request.user.id
+    token_ok = False
+    if token:
+        # Compare with transaction_id (UUID stored as string)
+        token_ok = secrets.compare_digest(token, str(payment.transaction_id))
+    if not token_ok and ref and payment.provider_ref:
+        token_ok = secrets.compare_digest(ref, payment.provider_ref)
+
+    if not (is_buyer or token_ok):
+        return HttpResponse('Unauthorized callback', status=403)
+
+    # Idempotently mark success and apply effects once
+    if payment.status != 'succeeded':
+        payment.status = 'succeeded'
+        payment.save(update_fields=['status'])
+        apply_payment_effects(payment)
+
+    # Authenticated UX with flash messages
+    if request.user.is_authenticated:
+        if payment.purpose == 'recharge':
+            messages.success(request, 'Recharge successful! Funds added to wallet.')
+            return redirect('wallet')
+        if payment.purpose == 'seat':
+            messages.success(request, 'Seat booked successfully.')
+        elif payment.purpose == 'penalty':
+            messages.success(request, 'Penalty paid. You can continue bidding.')
+        else:
+            messages.success(request, 'Payment successful!')
+
+    # Safe redirects for both authenticated and unauthenticated users
+    if payment.item_id:
         return redirect('item_detail', pk=payment.item_id)
-    if payment.purpose == 'penalty':
-        messages.success(request, 'Penalty paid. You can continue bidding.')
-        return redirect('item_detail', pk=payment.item_id)
-    if payment.purpose in ('order', 'buy_now'):
-        messages.success(request, 'Payment successful!')
-        return redirect('item_detail', pk=payment.item_id)
+    # No item (e.g., recharge) and unauthenticated: render plain response
     if payment.purpose == 'recharge':
-        messages.success(request, 'Recharge successful! Funds added to wallet.')
-        return redirect('wallet')
-    messages.success(request, 'Payment successful!')
-    return redirect('item_detail', pk=payment.item_id)
+        return HttpResponse('Wallet recharge successful')
+    return HttpResponse('Payment processed')
 
 
 def _generate_code(length: int = 8) -> str:
