@@ -6,7 +6,7 @@ import hashlib
 import json
 from .models import (
     AuctionItem, Bid, Payment, AuctionParticipant, Order, 
-    UserProfile, Wallet, WalletTransaction, WalletHold, LedgerBlock
+    UserProfile, Wallet, WalletTransaction, WalletHold, LedgerBlock, Transaction
 )
 import secrets
 import string
@@ -92,6 +92,14 @@ def apply_payment_effects(payment):
                 amount=payment.amount,
                 balance_after=wallet.balance,
             )
+            Transaction.objects.create(
+                user=payment.buyer,
+                payment=payment,
+                tx_type='RECHARGE',
+                status='SUCCESS',
+                amount=payment.amount,
+                metadata={'provider': payment.provider, 'provider_ref': payment.provider_ref},
+            )
         
         elif payment.purpose == 'seat':
             # Book seat for auction
@@ -104,6 +112,15 @@ def apply_payment_effects(payment):
                 participant.paid_at = timezone.now()
                 participant.booking_code = _generate_booking_code()
                 participant.save(update_fields=['is_booked', 'paid', 'paid_at', 'booking_code'])
+            Transaction.objects.create(
+                user=payment.buyer,
+                item=payment.item,
+                payment=payment,
+                tx_type='PAYMENT',
+                status='SUCCESS',
+                amount=payment.amount,
+                metadata={'purpose': 'seat'},
+            )
         
         elif payment.purpose == 'penalty':
             # Clear penalty
@@ -113,15 +130,33 @@ def apply_payment_effects(payment):
             if participant:
                 participant.penalty_due = False
                 participant.save(update_fields=['penalty_due'])
+            Transaction.objects.create(
+                user=payment.buyer,
+                item=payment.item,
+                payment=payment,
+                tx_type='PAYMENT',
+                status='SUCCESS',
+                amount=payment.amount,
+                metadata={'purpose': 'penalty'},
+            )
         
         elif payment.purpose in ('order', 'buy_now'):
             # Create order
-            Order.objects.create(
+            created_order = Order.objects.create(
                 item=payment.item,
                 buyer=payment.buyer,
                 amount=payment.amount,
                 status='paid',
                 paid_at=timezone.now(),
+            )
+            Transaction.objects.create(
+                user=payment.buyer,
+                item=payment.item,
+                payment=payment,
+                tx_type='PAYMENT',
+                status='SUCCESS',
+                amount=payment.amount,
+                metadata={'purpose': payment.purpose, 'order_id': created_order.pk},
             )
         
         # Mark payment as processed
@@ -134,6 +169,8 @@ def settle_auction_item(item):
     if item.is_settled:
         return False
     
+    # Lock item row to avoid concurrent settlements
+    item = AuctionItem.objects.select_for_update().get(pk=item.pk)
     highest_bid = item.bids.filter(is_active=True).order_by('-amount', 'created_at').first()
     if not highest_bid:
         return False
@@ -149,15 +186,17 @@ def settle_auction_item(item):
         )
         
         # Consume the hold amount
-        hold = WalletHold.objects.filter(
+        # Lock hold row if exists
+        hold = WalletHold.objects.select_for_update().filter(
             item=item, user=highest_bid.bidder, status='active'
         ).first()
         if hold:
             hold.status = 'consumed'
             hold.save(update_fields=['status', 'updated_at'])
             
-            # Deduct from wallet
+            # Deduct from wallet (lock row)
             wallet = get_or_create_wallet(highest_bid.bidder)
+            wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
             wallet.balance -= hold.amount
             wallet.save(update_fields=['balance'])
             
@@ -167,6 +206,14 @@ def settle_auction_item(item):
                 kind='hold_consume',
                 amount=hold.amount,
                 balance_after=wallet.balance,
+            )
+            Transaction.objects.create(
+                user=highest_bid.bidder,
+                item=item,
+                tx_type='PAYMENT',
+                status='SUCCESS',
+                amount=hold.amount,
+                metadata={'settlement': True, 'bid_id': highest_bid.pk},
             )
         
         # Mark item as settled

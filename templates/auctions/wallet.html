@@ -83,6 +83,39 @@
 
     <div class="card mt-3">
       <div class="card-body">
+        <div class="fw-bold mb-2">My Bank Accounts</div>
+        <form action="{% url 'link_bank' %}" method="post" class="row g-2 mb-3">
+          {% csrf_token %}
+          <div class="col-12 col-md-4"><input type="text" name="bank_name" class="form-control" placeholder="Bank name" required></div>
+          <div class="col-12 col-md-4"><input type="text" name="account_number" class="form-control" placeholder="Account number" required></div>
+          <div class="col-12 col-md-4"><input type="text" name="ifsc" class="form-control" placeholder="IFSC" required></div>
+          <div class="col-12"><textarea name="deposit_instructions" class="form-control" placeholder="Deposit instructions (optional)"></textarea></div>
+          <div class="col-12"><button class="btn btn-outline-primary">Add bank account</button></div>
+        </form>
+        {% if bank_accounts %}
+        <ul class="list-group">
+          {% for ba in bank_accounts %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <div>
+              <div class="small text-muted">{{ ba.bank_name }} (****{{ ba.account_number|slice:"-4:" }}) · {{ ba.ifsc }}</div>
+              {% if ba.deposit_instructions %}<div class="small">{{ ba.deposit_instructions }}</div>{% endif %}
+            </div>
+            {% if ba.is_verified %}
+              <span class="badge bg-success">Verified</span>
+            {% else %}
+              <span class="badge bg-warning text-dark">Unverified</span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="text-muted">No bank accounts added yet.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-body">
         <div class="fw-bold mb-2">Recent Wallet Activity</div>
         {% if transactions %}
         <ul class="list-group">
@@ -96,20 +129,6 @@
         {% else %}
         <div class="text-muted">No transactions.</div>
         {% endif %}
-      </div>
-    </div>
-
-    <div class="card mt-3">
-      <div class="card-body">
-        <div class="fw-bold mb-2">Data Management</div>
-        <div class="d-grid gap-2">
-          <a href="{% url 'export_user_data' %}" class="btn btn-outline-success">
-            <i class="bi bi-download"></i> Export My Data
-          </a>
-          <small class="text-muted">
-            Download all your data including profile, transactions, bids, and orders in JSON format.
-          </small>
-        </div>
       </div>
     </div>
   </div>
