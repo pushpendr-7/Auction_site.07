@@ -428,8 +428,25 @@ def bank_pay_start(request: HttpRequest, pk: int) -> HttpResponse:
         'status',
     ])
 
+    # Construct a UPI deep link if we have recipient VPA
+    # upi://pay?pa=<vpa>&pn=<name>&am=<amount>&cu=INR&tn=<note>
+    upi_link = ''
+    if payment.recipient_upi_vpa:
+        from urllib.parse import quote
+        pa = quote(payment.recipient_upi_vpa)
+        pn = quote(payment.recipient_bank_holder_name or 'Recipient')
+        am = quote(str(payment.amount))
+        tn = quote(f"Auction payment #{payment.pk}")
+        upi_link = f"upi://pay?pa={pa}&pn={pn}&am={am}&cu=INR&tn={tn}"
+
+    # Suggest payer identifier from the user's saved profile (e.g., UPI VPA)
+    buyer_profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    suggested_payer_identifier = buyer_profile.upi_vpa or ''
+
     return render(request, 'auctions/bank_pay.html', {
         'payment': payment,
+        'upi_link': upi_link,
+        'suggested_payer_identifier': suggested_payer_identifier,
     })
 
 
@@ -440,12 +457,19 @@ def bank_pay_confirm(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method != 'POST':
         return redirect('bank_pay_start', pk=pk)
     ref = (request.POST.get('reference') or '').strip()
+    offline_method = (request.POST.get('offline_method') or '').strip().lower()
+    payer_identifier = (request.POST.get('payer_identifier') or '').strip()
     if not ref:
         messages.error(request, 'Reference/UTR is required.')
         return redirect('bank_pay_start', pk=pk)
+    # Persist extra metadata for audits
+    if offline_method in ('upi', 'imps', 'neft', 'rtgs', 'other'):
+        payment.offline_method = offline_method
+    if payer_identifier:
+        payment.payer_identifier = payer_identifier[:120]
     payment.provider_ref = ref
     payment.status = 'succeeded'
-    payment.save(update_fields=['provider_ref', 'status'])
+    payment.save(update_fields=['provider_ref', 'status', 'offline_method', 'payer_identifier'])
     apply_payment_effects(payment)
     # Messaging & redirects per purpose
     if payment.purpose == 'seat':

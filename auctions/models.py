@@ -90,6 +90,9 @@ class Payment(models.Model):
     purpose = models.CharField(max_length=20, default='order')  # order, seat, penalty, buy_now
     provider = models.CharField(max_length=50, default='google_pay')
     provider_ref = models.CharField(max_length=200, blank=True)
+    # For offline/manual flows, capture how the user paid and who they appeared as
+    offline_method = models.CharField(max_length=20, blank=True, default='')  # upi, imps, neft, rtgs, other
+    payer_identifier = models.CharField(max_length=120, blank=True, default='')  # sender UPI VPA or bank last 4
     status = models.CharField(max_length=30, default='pending')
     transaction_id = models.CharField(max_length=36, unique=True, default=uuid.uuid4, editable=False)
     # Snapshot of recipient bank/UPI details at the time of payment (for offline/bank flows)
