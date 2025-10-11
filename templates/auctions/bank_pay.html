@@ -5,6 +5,7 @@
 <div class="card">
   <div class="card-body">
     <div class="mb-2">Amount to pay: <strong>₹ {{ payment.amount }}</strong></div>
+    <div class="small text-muted">Payment ID: {{ payment.id }} · Purpose: {{ payment.purpose }}</div>
     {% if not payment.recipient_upi_vpa and not payment.recipient_bank_account_number %}
     <div class="alert alert-warning">Recipient payment details are not configured. Contact support.</div>
     {% endif %}
@@ -16,6 +17,11 @@
           <div class="small text-muted">VPA</div>
           <div class="fs-6">{{ payment.recipient_upi_vpa }}</div>
           <div class="small text-muted mt-2">Use any UPI app to send.</div>
+          {% if upi_link %}
+          <div class="mt-2">
+            <a class="btn btn-sm btn-success" href="{{ upi_link }}">Open in UPI app</a>
+          </div>
+          {% endif %}
         </div>
       </div>
       {% endif %}
@@ -36,9 +42,23 @@
       {% endif %}
     </div>
     <hr>
-    <form method="post" action="{% url 'bank_pay_confirm' payment.id %}" class="row g-2">
+    <form method="post" action="{% url 'bank_pay_confirm' payment.id %}" class="row g-3">
       {% csrf_token %}
-      <div class="col-12 col-md-6">
+      <div class="col-12 col-md-4">
+        <label class="form-label small">How did you pay?</label>
+        <select name="offline_method" class="form-select">
+          <option value="upi">UPI</option>
+          <option value="imps">IMPS</option>
+          <option value="neft">NEFT</option>
+          <option value="rtgs">RTGS</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label small">Your UPI ID or Bank last 4</label>
+        <input type="text" name="payer_identifier" class="form-control" placeholder="name@bank or ****1234" value="{{ suggested_payer_identifier }}">
+      </div>
+      <div class="col-12 col-md-4">
         <label class="form-label small">Reference/UTR number</label>
         <input type="text" name="reference" class="form-control" placeholder="UTR/Ref" required>
       </div>
