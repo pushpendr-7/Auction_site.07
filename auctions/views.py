@@ -32,6 +32,7 @@ from .models import (
     Transaction,
 )
 from urllib.parse import urlparse
+from django.urls import reverse
 from .utils import append_ledger_block, get_available_balance, get_or_create_wallet, apply_payment_effects
 from django.conf import settings
 from .blockchain import inr_to_token_quote, validate_native_transfer
@@ -170,18 +171,25 @@ def item_detail(request: HttpRequest, pk: int) -> HttpResponse:
         ap = AuctionParticipant.objects.filter(item=item, user=request.user).only('code_verified_at').first()
         has_verified_code = bool(ap and ap.code_verified_at)
     owner_bank_accounts = None
+    owner_upi_vpa = ''
     if request.user.is_authenticated and request.user.id == item.owner_id:
         # Owner-only visibility
         try:
             owner_bank_accounts = item.owner.bank_accounts.all()
         except Exception:
             owner_bank_accounts = None
+        try:
+            owner_profile, _ = UserProfile.objects.get_or_create(user=item.owner)
+            owner_upi_vpa = owner_profile.upi_vpa or ''
+        except Exception:
+            owner_upi_vpa = ''
     return render(request, 'auctions/item_detail.html', {
         'item': item,
         'bids': bids,
         'participant': participant,
         'has_verified_code': has_verified_code,
         'owner_bank_accounts': owner_bank_accounts,
+        'owner_upi_vpa': owner_upi_vpa,
     })
 
 
@@ -352,10 +360,12 @@ def buy_now(request: HttpRequest, pk: int) -> HttpResponse:
     if item.buy_now_price is None:
         messages.error(request, 'Buy now is not available for this item.')
         return redirect('item_detail', pk=pk)
-    # Provider selection via query (?provider=bank|gpay|crypto|wallet)
+    # Provider selection via query (?provider=gpay|phonepe|bank|crypto|wallet)
     provider_param = (request.GET.get('provider') or 'gpay').lower()
     provider = 'google_pay'
-    if provider_param in ('bank', 'upi', 'neft', 'imps'):
+    if provider_param in ('phonepe', 'pp'):
+        provider = 'phonepe'
+    elif provider_param in ('bank', 'upi', 'neft', 'imps'):
         provider = 'bank'
     elif provider_param in ('crypto', 'blockchain'):
         provider = 'blockchain'
@@ -371,18 +381,58 @@ def buy_now(request: HttpRequest, pk: int) -> HttpResponse:
         return redirect('crypto_pay_start', pk=payment.pk)
     elif provider == 'bank':
         return redirect('bank_pay_start', pk=payment.pk)
+    elif provider == 'phonepe':
+        return redirect('phonepe_pay_start', pk=payment.pk)
     return redirect('google_pay_start', pk=payment.pk)
 
 
 @login_required
 def google_pay_start(request: HttpRequest, pk: int) -> HttpResponse:
     payment = get_object_or_404(Payment, pk=pk, buyer=request.user)
-    # Placeholder: In a real integration, generate payment token/session here.
-    payment.provider_ref = f"SIM-{payment.pk}-{timezone.now().timestamp()}"
+    # Determine recipient: platform for recharge/seat/penalty; seller for order/buy_now
+    recipient_user = None
+    if payment.purpose in ('order', 'buy_now') and payment.item:
+        recipient_user = payment.item.owner
+    # Snapshot recipient details: prefer seller's profile; fallback to platform settings
+    rec_upi = ''
+    rec_holder = ''
+    if recipient_user:
+        rec_profile, _ = UserProfile.objects.get_or_create(user=recipient_user)
+        rec_upi = rec_profile.upi_vpa or ''
+        rec_holder = rec_profile.bank_holder_name or ''
+    rec_upi = rec_upi or getattr(settings, 'PLATFORM_UPI_VPA', '')
+    rec_holder = rec_holder or getattr(settings, 'PLATFORM_BANK_HOLDER_NAME', 'Recipient')
+
+    # Persist snapshot on Payment
+    payment.recipient = recipient_user
+    payment.recipient_upi_vpa = rec_upi
+    payment.recipient_bank_holder_name = rec_holder
+    payment.provider = 'google_pay'
     payment.status = 'processing'
-    payment.save()
-    # Simulate redirect to Google Pay and immediate callback
-    return redirect('google_pay_callback', pk=payment.pk)
+    payment.save(update_fields=[
+        'recipient', 'recipient_upi_vpa', 'recipient_bank_holder_name', 'provider', 'status'
+    ])
+
+    # Build UPI deep link and Google Pay Intent URI with fallback
+    from urllib.parse import quote
+    pa = quote(payment.recipient_upi_vpa)
+    pn = quote(payment.recipient_bank_holder_name or 'Recipient')
+    am = quote(str(payment.amount))
+    tn = quote(f"Auction payment #{payment.pk}")
+    tr = quote(str(payment.transaction_id))
+    upi_url = f"upi://pay?pa={pa}&pn={pn}&am={am}&cu=INR&tn={tn}&tr={tr}"
+    fallback_url = request.build_absolute_uri(reverse('bank_pay_start', kwargs={'pk': payment.pk}))
+    intent_uri = f"intent://upi/pay?pa={pa}&pn={pn}&am={am}&cu=INR&tn={tn}&tr={tr}#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;S.browser_fallback_url={quote(fallback_url)};end"
+
+    return render(request, 'auctions/upi_launch.html', {
+        'payment': payment,
+        'intent_uri': intent_uri,
+        'upi_url': upi_url,
+        'fallback_url': fallback_url,
+        'selected_app': 'gpay',
+        'recipient_vpa': payment.recipient_upi_vpa,
+        'recipient_name': payment.recipient_bank_holder_name or 'Recipient',
+    })
 
 
 @login_required
@@ -447,6 +497,55 @@ def bank_pay_start(request: HttpRequest, pk: int) -> HttpResponse:
         'payment': payment,
         'upi_link': upi_link,
         'suggested_payer_identifier': suggested_payer_identifier,
+    })
+
+
+@login_required
+def phonepe_pay_start(request: HttpRequest, pk: int) -> HttpResponse:
+    payment = get_object_or_404(Payment, pk=pk, buyer=request.user)
+    # Determine recipient: platform for recharge/seat/penalty; seller for order/buy_now
+    recipient_user = None
+    if payment.purpose in ('order', 'buy_now') and payment.item:
+        recipient_user = payment.item.owner
+    # Snapshot recipient details: prefer seller's profile; fallback to platform settings
+    rec_upi = ''
+    rec_holder = ''
+    if recipient_user:
+        rec_profile, _ = UserProfile.objects.get_or_create(user=recipient_user)
+        rec_upi = rec_profile.upi_vpa or ''
+        rec_holder = rec_profile.bank_holder_name or ''
+    rec_upi = rec_upi or getattr(settings, 'PLATFORM_UPI_VPA', '')
+    rec_holder = rec_holder or getattr(settings, 'PLATFORM_BANK_HOLDER_NAME', 'Recipient')
+
+    # Persist snapshot on Payment
+    payment.recipient = recipient_user
+    payment.recipient_upi_vpa = rec_upi
+    payment.recipient_bank_holder_name = rec_holder
+    payment.provider = 'phonepe'
+    payment.status = 'processing'
+    payment.save(update_fields=[
+        'recipient', 'recipient_upi_vpa', 'recipient_bank_holder_name', 'provider', 'status'
+    ])
+
+    # Build UPI deep link and PhonePe Intent URI with fallback
+    from urllib.parse import quote
+    pa = quote(payment.recipient_upi_vpa)
+    pn = quote(payment.recipient_bank_holder_name or 'Recipient')
+    am = quote(str(payment.amount))
+    tn = quote(f"Auction payment #{payment.pk}")
+    tr = quote(str(payment.transaction_id))
+    upi_url = f"upi://pay?pa={pa}&pn={pn}&am={am}&cu=INR&tn={tn}&tr={tr}"
+    fallback_url = request.build_absolute_uri(reverse('bank_pay_start', kwargs={'pk': payment.pk}))
+    intent_uri = f"intent://upi/pay?pa={pa}&pn={pn}&am={am}&cu=INR&tn={tn}&tr={tr}#Intent;scheme=upi;package=com.phonepe.app;S.browser_fallback_url={quote(fallback_url)};end"
+
+    return render(request, 'auctions/upi_launch.html', {
+        'payment': payment,
+        'intent_uri': intent_uri,
+        'upi_url': upi_url,
+        'fallback_url': fallback_url,
+        'selected_app': 'phonepe',
+        'recipient_vpa': payment.recipient_upi_vpa,
+        'recipient_name': payment.recipient_bank_holder_name or 'Recipient',
     })
 
 
@@ -561,10 +660,12 @@ def book_seat(request: HttpRequest, pk: int) -> HttpResponse:
         messages.error(request, 'No seats available.')
         return redirect('item_detail', pk=pk)
 
-    # Charge ₹5 seat booking; provider selection via ?provider=bank|gpay|crypto
+    # Charge ₹5 seat booking; provider selection via ?provider=gpay|phonepe|bank|crypto
     provider_param = (request.GET.get('provider') or 'gpay').lower()
     provider = 'google_pay'
-    if provider_param in ('bank', 'upi', 'neft', 'imps'):
+    if provider_param in ('phonepe', 'pp'):
+        provider = 'phonepe'
+    elif provider_param in ('bank', 'upi', 'neft', 'imps'):
         provider = 'bank'
     elif provider_param in ('crypto', 'blockchain'):
         provider = 'blockchain'
@@ -580,6 +681,8 @@ def book_seat(request: HttpRequest, pk: int) -> HttpResponse:
         return redirect('crypto_pay_start', pk=payment.pk)
     elif provider == 'bank':
         return redirect('bank_pay_start', pk=payment.pk)
+    elif provider == 'phonepe':
+        return redirect('phonepe_pay_start', pk=payment.pk)
     return redirect('google_pay_start', pk=payment.pk)
 
 
@@ -863,7 +966,9 @@ def pay_penalty(request: HttpRequest, pk: int) -> HttpResponse:
         return redirect('item_detail', pk=pk)
     provider_param = (request.GET.get('provider') or 'gpay').lower()
     provider = 'google_pay'
-    if provider_param in ('bank', 'upi', 'neft', 'imps'):
+    if provider_param in ('phonepe', 'pp'):
+        provider = 'phonepe'
+    elif provider_param in ('bank', 'upi', 'neft', 'imps'):
         provider = 'bank'
     elif provider_param in ('crypto', 'blockchain'):
         provider = 'blockchain'
@@ -883,6 +988,8 @@ def pay_penalty(request: HttpRequest, pk: int) -> HttpResponse:
         return redirect('crypto_pay_start', pk=payment.pk)
     elif provider == 'bank':
         return redirect('bank_pay_start', pk=payment.pk)
+    elif provider == 'phonepe':
+        return redirect('phonepe_pay_start', pk=payment.pk)
     return redirect('google_pay_start', pk=payment.pk)
 
 @login_required
@@ -1031,10 +1138,10 @@ def wallet_recharge(request: HttpRequest) -> HttpResponse:
     if amount < Decimal('1.00'):
         messages.error(request, 'Minimum recharge amount is ₹1.00.')
         return redirect('wallet')
-    method = (request.POST.get('method') or 'upi').lower()
+    method = (request.POST.get('method') or 'gpay').lower()
     provider = 'google_pay'
-    if method == 'card':
-        provider = 'card'
+    if method in ('phonepe', 'pp'):
+        provider = 'phonepe'
     elif method == 'bank':
         provider = 'bank'
     elif method == 'crypto':
@@ -1053,6 +1160,8 @@ def wallet_recharge(request: HttpRequest) -> HttpResponse:
         return redirect('crypto_pay_start', pk=payment.pk)
     elif provider == 'bank':
         return redirect('bank_pay_start', pk=payment.pk)
+    elif provider == 'phonepe':
+        return redirect('phonepe_pay_start', pk=payment.pk)
     else:
         return redirect('google_pay_start', pk=payment.pk)
 

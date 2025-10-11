@@ -16,10 +16,8 @@
             {% csrf_token %}
             <input type="number" step="0.01" min="1" max="10000" name="amount" class="form-control" placeholder="Amount (max 10000)" required>
             <select name="method" class="form-select">
-              <option value="upi">UPI</option>
-              <option value="card">Card</option>
-              <option value="bank">Bank</option>
-              <option value="crypto">Crypto</option>
+              <option value="gpay">Google Pay</option>
+              <option value="phonepe">PhonePe</option>
             </select>
             <button class="btn btn-primary">Recharge</button>
           </form>

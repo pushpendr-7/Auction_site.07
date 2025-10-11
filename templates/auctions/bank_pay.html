@@ -1,7 +1,7 @@
 {% extends 'auctions/base.html' %}
 {% block title %}Bank Transfer{% endblock %}
 {% block content %}
-<h1 class="h4 mb-3">Pay via Bank / UPI</h1>
+<h1 class="h4 mb-3">Manual UPI / Bank Fallback</h1>
 <div class="card">
   <div class="card-body">
     <div class="mb-2">Amount to pay: <strong>₹ {{ payment.amount }}</strong></div>
@@ -16,7 +16,7 @@
           <div class="fw-bold mb-2">UPI (Preferred)</div>
           <div class="small text-muted">VPA</div>
           <div class="fs-6">{{ payment.recipient_upi_vpa }}</div>
-          <div class="small text-muted mt-2">Use any UPI app to send.</div>
+          <div class="small text-muted mt-2">Use any UPI app to send if auto-launch fails.</div>
           {% if upi_link %}
           <div class="mt-2">
             <a class="btn btn-sm btn-success" href="{{ upi_link }}">Open in UPI app</a>

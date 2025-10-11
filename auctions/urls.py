@@ -12,6 +12,7 @@ urlpatterns = [
     path('items/<int:pk>/bid/', views.place_bid, name='place_bid'),
     path('items/<int:pk>/buy/', views.buy_now, name='buy_now'),
     path('payments/<int:pk>/gpay/', views.google_pay_start, name='google_pay_start'),
+    path('payments/<int:pk>/phonepe/', views.phonepe_pay_start, name='phonepe_pay_start'),
     path('payments/<int:pk>/callback/', views.google_pay_callback, name='google_pay_callback'),
     path('payments/<int:pk>/crypto/', views.crypto_pay_start, name='crypto_pay_start'),
     path('payments/<int:pk>/crypto/confirm/', views.crypto_pay_confirm, name='crypto_pay_confirm'),
