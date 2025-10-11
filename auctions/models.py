@@ -181,6 +181,26 @@ class Wallet(models.Model):
         return f"Wallet({self.user_id}) ₹{self.balance}"
 
 
+class BankAccount(models.Model):
+    """Bank account owned by a user for receiving payments and offline deposits.
+    Shown only to the item owner in templates.
+    """
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='bank_accounts')
+    bank_name = models.CharField(max_length=120)
+    account_number = models.CharField(max_length=34)
+    ifsc = models.CharField(max_length=20)
+    deposit_instructions = models.TextField(blank=True, help_text='What buyers should do after winning')
+    is_verified = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self) -> str:
+        return f"{self.bank_name} • {self.account_number[-4:]} ({'✓' if self.is_verified else 'unverified'})"
+
+
 class WalletTransaction(models.Model):
     KIND_CHOICES = (
         ('credit', 'Credit'),
@@ -230,6 +250,41 @@ class WalletHold(models.Model):
 
     def __str__(self) -> str:
         return f"Hold ₹{self.amount} on item {self.item_id} ({self.status})"
+
+
+class Transaction(models.Model):
+    """Unified transaction log for audits (recharges, bids, payments, refunds).
+    This does not replace Payment/WalletTransaction but complements them for traceability.
+    """
+    TX_TYPES = (
+        ('RECHARGE', 'Recharge'),
+        ('BID', 'Bid'),
+        ('PAYMENT', 'Payment'),
+        ('REFUND', 'Refund'),
+        ('INFO', 'Informational'),
+    )
+    STATUSES = (
+        ('PENDING', 'Pending'),
+        ('SUCCESS', 'Success'),
+        ('FAILED', 'Failed'),
+        ('INFO', 'Info'),
+    )
+    transaction_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='transactions')
+    item = models.ForeignKey('AuctionItem', on_delete=models.SET_NULL, null=True, blank=True, related_name='transactions')
+    payment = models.ForeignKey('Payment', on_delete=models.SET_NULL, null=True, blank=True, related_name='transactions')
+    tx_type = models.CharField(max_length=20, choices=TX_TYPES)
+    status = models.CharField(max_length=20, choices=STATUSES, default='INFO')
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self) -> str:
+        return f"{self.tx_type}:{self.transaction_id} ({self.status})"
 
 
 class DataBackup(models.Model):

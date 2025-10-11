@@ -89,6 +89,28 @@
             <a href="{{ item.meet_url }}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm">Open Meet</a>
           {% endif %}
         </form>
+        {% if owner_bank_accounts %}
+        <div class="mt-2">
+          <div class="fw-bold">Your bank deposit instructions</div>
+          <ul class="list-group">
+            {% for ba in owner_bank_accounts %}
+              <li class="list-group-item">
+                <div class="small text-muted">{{ ba.bank_name }} (****{{ ba.account_number|slice:"-4:" }}) · {{ ba.ifsc }}</div>
+                {% if ba.deposit_instructions %}
+                  <div class="small">{{ ba.deposit_instructions }}</div>
+                {% endif %}
+                {% if ba.is_verified %}
+                  <span class="badge bg-success">Verified</span>
+                {% else %}
+                  <span class="badge bg-warning text-dark">Unverified</span>
+                {% endif %}
+              </li>
+            {% empty %}
+              <li class="list-group-item">No bank accounts added.</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
       </div>
       {% endif %}
     {% else %}
@@ -114,6 +136,7 @@
   <div class="small text-muted mt-1">Auto-refreshing…</div>
   <script>
   (function(){
+    var ws;
     function renderBids(data){
       var el = document.getElementById('bids-list');
       if (!el) return;
@@ -142,7 +165,27 @@
     function tick(){
       fetch('/items/{{ item.pk }}/bids.json').then(function(r){ return r.json(); }).then(renderBids).catch(function(){});
     }
-    setInterval(tick, 4000);
+    // Try WebSocket first; fallback to polling
+    try {
+      var scheme = (window.location.protocol === 'https:') ? 'wss' : 'ws';
+      ws = new WebSocket(scheme + '://' + window.location.host + '/ws/auctions/{{ item.pk }}/');
+      ws.onmessage = function(evt){
+        try {
+          var msg = JSON.parse(evt.data);
+          if (msg && msg.type === 'new_bid' && msg.bid){
+            // Merge with latest server state to avoid divergence
+            tick();
+          }
+        } catch (e) {}
+      };
+      ws.onopen = function(){ /* connected */ };
+      ws.onerror = function(){ setInterval(tick, 4000); };
+      ws.onclose = function(){ setInterval(tick, 4000); };
+    } catch (e){
+      setInterval(tick, 4000);
+    }
+    // Initial load
+    tick();
   })();
   </script>
   </div>

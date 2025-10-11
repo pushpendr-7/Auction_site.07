@@ -15,6 +15,8 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django import forms
 from django.db import transaction
 from django.views.decorators.http import require_GET, require_POST
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 from django.views.decorators.csrf import csrf_exempt
 
 from .models import (
@@ -27,11 +29,14 @@ from .models import (
     Wallet,
     WalletTransaction,
     WalletHold,
+    Transaction,
 )
 from urllib.parse import urlparse
 from .utils import append_ledger_block, get_available_balance, get_or_create_wallet, apply_payment_effects
 from django.conf import settings
 from .blockchain import inr_to_token_quote, validate_native_transfer
+from .forms import BankLinkForm
+from .models import BankAccount
 
 
 class AuctionItemForm(forms.ModelForm):
@@ -164,11 +169,19 @@ def item_detail(request: HttpRequest, pk: int) -> HttpResponse:
     if request.user.is_authenticated:
         ap = AuctionParticipant.objects.filter(item=item, user=request.user).only('code_verified_at').first()
         has_verified_code = bool(ap and ap.code_verified_at)
+    owner_bank_accounts = None
+    if request.user.is_authenticated and request.user.id == item.owner_id:
+        # Owner-only visibility
+        try:
+            owner_bank_accounts = item.owner.bank_accounts.all()
+        except Exception:
+            owner_bank_accounts = None
     return render(request, 'auctions/item_detail.html', {
         'item': item,
         'bids': bids,
         'participant': participant,
         'has_verified_code': has_verified_code,
+        'owner_bank_accounts': owner_bank_accounts,
     })
 
 
@@ -291,6 +304,15 @@ def place_bid(request: HttpRequest, pk: int) -> HttpResponse:
                 )
 
         new_bid = Bid.objects.create(item=item_refreshed, bidder=request.user, amount=amount, is_active=True)
+        # Transaction log for audit (informational)
+        Transaction.objects.create(
+            user=request.user,
+            item=item_refreshed,
+            tx_type='BID',
+            status='INFO',
+            amount=amount,
+            metadata={'bid_tx_id': str(new_bid.tx_id)},
+        )
         append_ledger_block({
             'type': 'bid_placed',
             'item_id': item_refreshed.pk,
@@ -299,6 +321,26 @@ def place_bid(request: HttpRequest, pk: int) -> HttpResponse:
             'bid_tx_id': new_bid.tx_id,
             'timestamp': timezone.now().isoformat(),
         })
+
+    # Broadcast new bid via Channels (best-effort, non-blocking)
+    try:
+        channel_layer = get_channel_layer()
+        if channel_layer is not None:
+            async_to_sync(channel_layer.group_send)(
+                f"auction_{item.pk}",
+                {
+                    'type': 'new_bid',
+                    'bid': {
+                        'bidder__username': request.user.username,
+                        'amount': str(amount),
+                        'created_at': timezone.now().isoformat(),
+                        'is_active': True,
+                    },
+                }
+            )
+    except Exception:
+        # Ignore broadcast errors
+        pass
 
     messages.success(request, 'Bid placed! Funds reserved until you are outbid or auction ends.')
     return redirect('item_detail', pk=pk)
@@ -907,12 +949,16 @@ def wallet_view(request: HttpRequest) -> HttpResponse:
     transactions = WalletTransaction.objects.filter(user=request.user).select_related('item', 'payment').order_by('-created_at')[:100]
     available = get_available_balance(request.user)
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    bank_accounts = BankAccount.objects.filter(user=request.user).order_by('-created_at')
+    bank_form = BankLinkForm()
     return render(request, 'auctions/wallet.html', {
         'wallet': wallet,
         'available': available,
         'holds': holds,
         'transactions': transactions,
         'profile': profile,
+        'bank_accounts': bank_accounts,
+        'bank_form': bank_form,
     })
 
 
@@ -997,6 +1043,25 @@ def update_payment_methods(request: HttpRequest) -> HttpResponse:
         messages.success(request, 'Payment methods updated.')
     else:
         messages.info(request, 'No changes detected.')
+    return redirect('wallet')
+
+
+@login_required
+def link_bank(request: HttpRequest) -> HttpResponse:
+    if request.method != 'POST':
+        return redirect('wallet')
+    form = BankLinkForm(request.POST)
+    if form.is_valid():
+        BankAccount.objects.create(
+            user=request.user,
+            bank_name=form.cleaned_data['bank_name'],
+            account_number=form.cleaned_data['account_number'],
+            ifsc=form.cleaned_data['ifsc'],
+            deposit_instructions=form.cleaned_data.get('deposit_instructions', ''),
+        )
+        messages.success(request, 'Bank account added.')
+    else:
+        messages.error(request, 'Please correct the bank details.')
     return redirect('wallet')
 
 
