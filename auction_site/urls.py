@@ -19,10 +19,13 @@ from django.urls import path, include, re_path
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.static import serve as static_serve
+from django.views.generic import RedirectView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('auctions.urls')),
+    # Ensure requests to /favicon.ico resolve to the bundled static favicon
+    re_path(r'^favicon\.ico$', RedirectView.as_view(url=f"{settings.STATIC_URL}favicon.png", permanent=True)),
 ]
 
 # Serve uploaded media files so item images display both locally and on Render.
