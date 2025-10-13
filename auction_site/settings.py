@@ -205,7 +205,13 @@ PLATFORM_BANK_HOLDER_NAME = os.environ.get("PLATFORM_BANK_HOLDER_NAME", "")
 PLATFORM_BANK_ACCOUNT_NUMBER = os.environ.get("PLATFORM_BANK_ACCOUNT_NUMBER", "")
 PLATFORM_BANK_IFSC = os.environ.get("PLATFORM_BANK_IFSC", "")
 
-STATIC_URL = '/static/'
+
+
 import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+STATIC_URL = '/static/'
 STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
