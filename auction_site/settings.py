@@ -85,7 +85,8 @@ ASGI_APPLICATION = 'auction_site.asgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-
+#
+# Default to SQLite for local development; prefer managed Postgres via env vars in production.
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -93,13 +94,17 @@ DATABASES = {
     }
 }
 
-# Prefer Postgres when DATABASE_URL is provided (e.g., Render/Heroku)
+# Prefer Render's internal Postgres URL when available; fall back to public DATABASE_URL.
+DATABASE_INTERNAL_URL = os.environ.get("DATABASE_INTERNAL_URL")
 DATABASE_URL = os.environ.get("DATABASE_URL")
-if DATABASE_URL:
-    DATABASES['default'] = dj_database_url.config(
-        default=DATABASE_URL,
+db_url = DATABASE_INTERNAL_URL or DATABASE_URL
+if db_url:
+    # Require SSL only when using the public connection string and not in DEBUG.
+    ssl_require = (DATABASE_INTERNAL_URL is None) and (not DEBUG)
+    DATABASES['default'] = dj_database_url.parse(
+        db_url,
         conn_max_age=600,
-        ssl_require=True,
+        ssl_require=ssl_require,
     )
 
 
