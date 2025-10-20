@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: auction-site
+    env: python
+    plan: free
+    region: oregon
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    startCommand: python manage.py migrate --noinput && daphne -b 0.0.0.0 -p $PORT auction_site.asgi:application
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.6
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_INTERNAL_URL
+        fromDatabase:
+          name: auction-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: auction-redis
+          type: redis
+    routes:
+      - type: tcp
+        predeployCommand: python manage.py migrate --noinput
+    healthCheckPath: /
+
+  - type: redis
+    name: auction-redis
+    plan: free
+
+  - type: postgres
+    name: auction-db
+    plan: free
+    databaseName: auction
+    user: auction
+    ipAllowList: []
