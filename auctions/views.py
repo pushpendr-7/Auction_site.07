@@ -1298,3 +1298,7 @@ def serialize_model_data(queryset):
                 obj_dict[field.name] = value
         data.append(obj_dict)
     return data
+
+
+def index(request):
+	return render(request,"index.html")
