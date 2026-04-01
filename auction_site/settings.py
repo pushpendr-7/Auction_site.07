@@ -9,20 +9,14 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
-from dotenv import load_dotenv
-load_dotenv()
+
 from pathlib import Path
 import os
 import dj_database_url
 
-import os
-from pathlib import Path
-
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-STATIC_URL = '/static/'
-STATICFILES_DIRS = [os.path.join(BASE_DIR,'static')]
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -34,9 +28,17 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-zhq-wvp36s95d!rp+#qrk
 # Default to False; enable locally with DJANGO_DEBUG=true
 DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
 
-ALLOWED_HOSTS = ["*", '127.0.0.1', 'localhost']
+ALLOWED_HOSTS = [
+    "*",
+    "127.0.0.1",
+    "localhost",
+    ".railway.app",
+    ".up.railway.app",
+]
 CSRF_TRUSTED_ORIGINS = [
     "https://*.onrender.com",
+    "https://*.railway.app",
+    "https://*.up.railway.app",
 ]
 # Debug mode ON करें
 #DEBUG = True
@@ -54,6 +56,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'channels',
+    'cloudinary',
+    'cloudinary_storage',
     'auctions',
 ]
 
@@ -167,6 +171,15 @@ if not DEBUG:
 MEDIA_URL = '/media/'
 # Allow overriding media root to a persistent disk path via env
 MEDIA_ROOT = Path(os.environ.get('MEDIA_ROOT', BASE_DIR / 'media'))
+
+# Cloudinary for media file storage (Railway deployment)
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME', ''),
+    'API_KEY':    os.environ.get('CLOUDINARY_API_KEY', ''),
+    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET', ''),
+}
+if os.environ.get('CLOUDINARY_CLOUD_NAME'):
+    DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'home'
