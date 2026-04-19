@@ -1,0 +1,36 @@
+{% extends 'auctions/base.html' %}
+{% block title %}Crypto Payment{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">Crypto Payment</h1>
+
+{% if not merchant_address %}
+<div class="alert alert-warning">Merchant wallet address is not configured. Ask admin to set BLOCKCHAIN_MERCHANT_ADDRESS.</div>
+{% endif %}
+
+<div class="card mb-3">
+  <div class="card-body">
+    <h5 class="card-title">Send {{ quote.token_symbol }} ({{ network_name }})</h5>
+    <p class="card-text">Amount: <strong>{{ quote.token_amount }}</strong> {{ quote.token_symbol }} (₹{{ quote.fiat_amount_inr }})</p>
+    <p class="card-text">To Address: <code>{{ merchant_address }}</code></p>
+    <p class="card-text">Minimum amount in wei: <code>{{ quote.wei_amount }}</code></p>
+    <p class="text-muted">After sending, paste your transaction hash below to confirm.</p>
+    <form method="post" action="{% url 'crypto_pay_confirm' payment.id %}">
+      {% csrf_token %}
+      <div class="mb-3">
+        <label class="form-label">Transaction Hash</label>
+        <input type="text" class="form-control" name="tx_hash" placeholder="0x..." required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Your Wallet Address (optional)</label>
+        <input type="text" class="form-control" name="from_address" placeholder="0x...">
+      </div>
+      <button class="btn btn-primary" type="submit">Confirm Payment</button>
+      <a class="btn btn-outline-secondary" href="{% url 'item_detail' payment.item_id %}">Back</a>
+    </form>
+  </div>
+  <div class="card-footer">
+    <small class="text-muted">Network: {{ network_name }} · Conf required: {{ min_confirmations }}</small>
+  </div>
+</div>
+
+{% endblock %}

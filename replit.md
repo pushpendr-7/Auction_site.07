@@ -2,26 +2,44 @@
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+Django auction site deployed on Replit. This is a full-featured auction platform with WebSocket support (Django Channels), SQLite database, and user authentication.
 
 ## Stack
 
-- **Monorepo tool**: pnpm workspaces
-- **Node.js version**: 24
-- **Package manager**: pnpm
-- **TypeScript version**: 5.9
-- **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
+- **Language**: Python 3.11
+- **Framework**: Django 5.2 with Django Channels (WebSockets)
+- **ASGI Server**: Daphne
+- **Database**: SQLite (db.sqlite3)
+- **Static Files**: WhiteNoise
+- **Media**: Local file storage (Cloudinary optional via env vars)
+
+## Project Structure
+
+- `auction_site/` — Django project settings, urls, asgi config
+- `auctions/` — Main Django app (models, views, forms, consumers)
+- `templates/` — Django HTML templates
+- `static/` — Static files (CSS, JS, images)
+- `staticfiles/` — Collected static files (generated)
+- `manage.py` — Django management script
+- `start_django.sh` — Startup script
 
 ## Key Commands
 
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- `pnpm --filter @workspace/api-server run dev` — run API server locally
+- `python3.11 manage.py migrate` — Run database migrations
+- `python3.11 manage.py collectstatic` — Collect static files
+- `python3.11 manage.py createsuperuser` — Create admin user
+- `bash start_django.sh` — Start the server (port 8000)
 
-See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+## Environment Variables (Optional)
+
+- `SECRET_KEY` — Django secret key
+- `DJANGO_DEBUG` — Set to "true" for debug mode
+- `CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET` — Cloudinary media storage
+- `REDIS_URL` — Redis for Django Channels (falls back to in-memory)
+- `DATABASE_URL` — PostgreSQL database (falls back to SQLite)
+
+## Monorepo Info
+
+- **Monorepo tool**: pnpm workspaces (for existing Node.js artifacts)
+- **Node.js version**: 24
+- **Package manager**: pnpm

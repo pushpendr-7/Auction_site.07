@@ -1,0 +1,71 @@
+{% extends 'auctions/base.html' %}
+{% block title %}Call - {{ item.title }}{% endblock %}
+{% block content %}
+<h1 class="h4 mb-3">Live Call: {{ item.title }}</h1>
+<div class="row g-3">
+  <div class="col-md-8">
+    <div class="ratio ratio-16x9 bg-black border border-1 d-flex align-items-center justify-content-center">
+      {% if item.meet_url %}
+        <div class="text-center p-3">
+          <div class="mb-3">
+            <a href="{{ item.meet_url }}" target="_blank" rel="noopener" class="btn btn-success">Open Google Meet</a>
+          </div>
+          <div class="text-muted small">The call opens in a new tab. Return here to follow activity.</div>
+        </div>
+      {% else %}
+        <div class="text-center text-muted p-3">Seller has not provided a Google Meet link yet.</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-body">
+        <p class="small text-muted">Join the Google Meet using the button. Keep this page open to see participants and bids update live.</p>
+        <div class="d-flex gap-2 mb-2"><a href="/items/{{ item.pk }}/" class="btn btn-outline-secondary btn-sm">Back to Item</a></div>
+        <div id="activity" class="small" style="max-height: 50vh; overflow:auto;">
+          <div class="text-muted">Loading activity…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+// Poll for activity (participants and bids)
+(function(){
+  var el = document.getElementById('activity');
+  function render(data){
+    var html = '';
+    html += '<div class="fw-bold">Participants</div>';
+    if (data.participants && data.participants.length){
+      html += '<ul class="list-unstyled mb-2">' + data.participants.map(function(p){
+        return '<li>👤 ' + p['user__username'] + ' <span class="text-muted">' + (p.booking_code || '') + '</span>' + (p.penalty_due ? ' <span class="text-danger">penalty</span>' : '') + '</li>';
+      }).join('') + '</ul>';
+    } else {
+      html += '<div class="text-muted">No participants.</div>';
+    }
+    html += '<div class="fw-bold mt-2">Recent bids</div>';
+    if (data.bids && data.bids.length){
+      html += '<ul class="list-unstyled">' + data.bids.map(function(b){
+        var status = b.is_active ? '' : ' <span class="text-muted">(inactive)</span>';
+        return '<li>₹ ' + b.amount + ' by ' + b['bidder__username'] + status + '</li>';
+      }).join('') + '</ul>';
+    } else {
+      html += '<div class="text-muted">No bids.</div>';
+    }
+    el.innerHTML = html;
+  }
+  function tick(){
+    fetch('/items/{{ item.pk }}/call/activity/').then(function(r){ return r.json(); }).then(render).catch(function(){});
+  }
+  tick();
+  setInterval(tick, 5000);
+})();
+
+// Presence ping from call room to avoid incorrect offline penalties
+(function(){
+  setInterval(function(){
+    fetch('/items/{{ item.pk }}/presence/');
+  }, 10000);
+})();
+</script>
+{% endblock %}
