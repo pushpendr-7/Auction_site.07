@@ -13,3 +13,14 @@ paths = ["/"]
 run = "bash /home/runner/workspace/start_django.sh"
 
 [services.production]
+
+[services.production.run]
+args = ["bash", "/home/runner/workspace/start_django.sh"]
+
+[services.production.run.env]
+PORT = "8000"
+REPLIT_DEPLOYMENT = "1"
+PYTHONPATH = "/home/runner/workspace"
+
+[services.production.health.startup]
+path = "/"
