@@ -1,0 +1,112 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>500 — Server Error | BidBazaar</title>
+  <meta name="robots" content="noindex">
+  <style>
+    :root {
+      --sand: #e8d5a3;
+      --gold: #c9a84c;
+      --dark-sand: #b8860b;
+      --night: #1a0f2e;
+      --sky: #2d1b5e;
+      --red-sand: #8b2500;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      background: linear-gradient(180deg, #0d0009 0%, #3d0015 35%, #8b2500 65%, var(--sand) 100%);
+      font-family: 'Georgia', serif;
+      color: var(--sand);
+      overflow-x: hidden;
+    }
+    .stars { position: fixed; top: 0; left: 0; width: 100%; height: 50%; pointer-events: none; z-index: 0; }
+    .star { position: absolute; border-radius: 50%; background: #fff; animation: twinkle 2s infinite alternate; }
+    @keyframes twinkle { from{opacity:0.2} to{opacity:0.7} }
+    .scene {
+      position: relative; z-index: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      min-height: 100vh; padding: 2rem 1rem;
+    }
+    .pyramids { display: flex; align-items: flex-end; gap: 8px; margin-bottom: -2px; }
+    .pyramid { width: 0; height: 0; border-style: solid; }
+    .pyramid-lg { border-left: 80px solid transparent; border-right: 80px solid transparent; border-bottom: 130px solid #7a4b2a; }
+    .pyramid-md { border-left: 55px solid transparent; border-right: 55px solid transparent; border-bottom: 95px solid #5a3520; }
+    .pyramid-sm { border-left: 40px solid transparent; border-right: 40px solid transparent; border-bottom: 70px solid #4a2810; }
+
+    .desert-ground { width: 100%; height: 50px; background: linear-gradient(to bottom, #8b4e2a, var(--sand)); }
+
+    .error-card {
+      background: rgba(61, 0, 21, 0.85);
+      border: 2px solid #ff4444;
+      border-radius: 12px;
+      padding: 2.5rem 3rem;
+      text-align: center;
+      max-width: 500px;
+      width: 100%;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 0 40px rgba(255,68,68,0.2);
+      margin-bottom: 2rem;
+    }
+    .hieroglyph-border { font-size: 1.3rem; letter-spacing: 0.5rem; color: #ff9966; margin-bottom: 1rem; opacity: 0.7; }
+    .error-number {
+      font-size: 5rem; font-weight: 900;
+      color: #ff6644;
+      text-shadow: 0 0 20px rgba(255,68,68,0.6);
+      line-height: 1;
+    }
+    .error-title { font-size: 1.4rem; color: var(--sand); margin: 0.5rem 0 1rem; font-style: italic; }
+    .error-desc { font-size: 0.95rem; color: rgba(232,213,163,0.7); margin-bottom: 2rem; line-height: 1.6; }
+    .btn-golden {
+      background: linear-gradient(135deg, #c9a84c, #b8860b);
+      border: none; color: var(--night);
+      font-weight: bold; padding: 0.75rem 2rem;
+      border-radius: 8px; text-decoration: none;
+      display: inline-block; transition: all 0.3s;
+    }
+    .btn-golden:hover { transform: translateY(-2px); color: var(--night); }
+    .flame { font-size: 2.5rem; animation: flicker 0.5s ease-in-out infinite alternate; display: inline-block; }
+    @keyframes flicker { from{opacity:0.7; transform:scale(0.95)} to{opacity:1; transform:scale(1.05)} }
+  </style>
+</head>
+<body>
+  <div class="stars" id="stars"></div>
+  <div class="scene">
+    <div class="error-card">
+      <div class="hieroglyph-border">𓆱 𓅓 𓏏 𓂋 𓄿 𓈖 𓄿</div>
+      <div class="error-number">500</div>
+      <div class="error-title">The Temple has Collapsed</div>
+      <div class="error-desc">
+        The curse of the Pharaoh has struck our servers!<br>
+        Our engineers are deciphering the ancient hieroglyphs to fix this.
+      </div>
+      <div class="mb-3">
+        <span class="flame">🔥</span>
+        <span style="font-size:2rem;margin:0 0.5rem;">⚡</span>
+        <span class="flame">🔥</span>
+      </div>
+      <a href="/" class="btn-golden">Escape the Curse</a>
+    </div>
+    <div class="pyramids">
+      <div class="pyramid pyramid-sm"></div>
+      <div class="pyramid pyramid-lg"></div>
+      <div class="pyramid pyramid-md"></div>
+    </div>
+    <div class="desert-ground" style="width:100%;"></div>
+  </div>
+  <script>
+    const starsEl = document.getElementById('stars');
+    for(let i = 0; i < 60; i++) {
+      const s = document.createElement('div');
+      s.className = 'star';
+      const size = Math.random() * 3 + 1;
+      s.style.cssText = `width:${size}px;height:${size}px;top:${Math.random()*100}%;left:${Math.random()*100}%;animation-delay:${Math.random()*3}s;animation-duration:${1.5+Math.random()*2}s;`;
+      starsEl.appendChild(s);
+    }
+  </script>
+</body>
+</html>

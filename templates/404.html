@@ -1,0 +1,202 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>404 — Page Not Found | BidBazaar</title>
+  <meta name="robots" content="noindex">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --sand: #e8d5a3;
+      --gold: #c9a84c;
+      --dark-sand: #b8860b;
+      --stone: #8b7355;
+      --night: #1a0f2e;
+      --sky: #2d1b5e;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      background: linear-gradient(180deg, var(--night) 0%, var(--sky) 40%, #c2651e 70%, var(--sand) 100%);
+      font-family: 'Georgia', serif;
+      color: var(--sand);
+      overflow-x: hidden;
+    }
+    .stars {
+      position: fixed; top: 0; left: 0; width: 100%; height: 50%;
+      pointer-events: none; z-index: 0;
+    }
+    .star {
+      position: absolute; border-radius: 50%;
+      background: #fff; opacity: 0.8;
+      animation: twinkle 2s infinite alternate;
+    }
+    @keyframes twinkle { from{opacity:0.3} to{opacity:0.9} }
+    .moon {
+      position: absolute; top: 8%; right: 12%;
+      width: 60px; height: 60px;
+      background: #fffde7;
+      border-radius: 50%;
+      box-shadow: 0 0 30px 10px rgba(255,253,200,0.4);
+    }
+    .scene {
+      position: relative; z-index: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      min-height: 100vh; padding: 2rem 1rem;
+    }
+
+    /* Pyramids */
+    .pyramids {
+      display: flex; align-items: flex-end; gap: 8px;
+      margin-bottom: -2px; position: relative; z-index: 2;
+    }
+    .pyramid {
+      width: 0; height: 0;
+      border-style: solid;
+    }
+    .pyramid-lg {
+      border-left: 80px solid transparent;
+      border-right: 80px solid transparent;
+      border-bottom: 130px solid #c8a55a;
+      filter: drop-shadow(0 0 8px rgba(200,165,90,0.3));
+    }
+    .pyramid-md {
+      border-left: 55px solid transparent;
+      border-right: 55px solid transparent;
+      border-bottom: 95px solid #b8943a;
+    }
+    .pyramid-sm {
+      border-left: 40px solid transparent;
+      border-right: 40px solid transparent;
+      border-bottom: 70px solid #a07b2a;
+    }
+    .capstone { color: var(--gold); font-size: 1.5rem; text-shadow: 0 0 10px gold; }
+
+    /* Desert ground */
+    .desert-ground {
+      width: 100%; max-width: 600px;
+      height: 50px;
+      background: linear-gradient(to bottom, #c8a55a, var(--sand));
+      border-radius: 50% 50% 0 0 / 20px 20px 0 0;
+      position: relative; z-index: 1;
+    }
+
+    /* Error card */
+    .error-card {
+      background: rgba(26, 15, 46, 0.85);
+      border: 2px solid var(--gold);
+      border-radius: 12px;
+      padding: 2.5rem 3rem;
+      text-align: center;
+      max-width: 500px;
+      width: 100%;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 0 40px rgba(201,168,76,0.2);
+      margin-bottom: 2rem;
+    }
+    .hieroglyph-border {
+      font-size: 1.3rem;
+      letter-spacing: 0.5rem;
+      color: var(--gold);
+      margin-bottom: 1rem;
+      opacity: 0.7;
+    }
+    .error-number {
+      font-size: 5rem;
+      font-weight: 900;
+      color: var(--gold);
+      text-shadow: 0 0 20px rgba(201,168,76,0.5);
+      line-height: 1;
+    }
+    .error-title {
+      font-size: 1.4rem;
+      color: var(--sand);
+      margin: 0.5rem 0 1rem;
+      font-style: italic;
+    }
+    .error-desc {
+      font-size: 0.95rem;
+      color: rgba(232,213,163,0.7);
+      margin-bottom: 2rem;
+      line-height: 1.6;
+    }
+    .btn-golden {
+      background: linear-gradient(135deg, var(--gold), var(--dark-sand));
+      border: none; color: var(--night);
+      font-weight: bold; padding: 0.75rem 2rem;
+      border-radius: 8px; text-decoration: none;
+      display: inline-block;
+      transition: all 0.3s;
+      box-shadow: 0 4px 15px rgba(201,168,76,0.3);
+    }
+    .btn-golden:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(201,168,76,0.5);
+      color: var(--night);
+    }
+    .camel {
+      font-size: 2.5rem;
+      animation: walk 3s ease-in-out infinite alternate;
+      display: inline-block;
+    }
+    @keyframes walk {
+      from { transform: translateX(-20px); }
+      to { transform: translateX(20px); }
+    }
+    .ankh { color: var(--gold); font-size: 1.8rem; margin: 0 0.5rem; }
+  </style>
+</head>
+<body>
+  <!-- Stars -->
+  <div class="stars" id="stars"></div>
+
+  <div class="scene">
+    <!-- Error card -->
+    <div class="error-card">
+      <div class="hieroglyph-border">𓂀 𓋴 𓂋 𓄿 𓇋 𓄿 𓄿</div>
+      <div class="error-number">404</div>
+      <div class="error-title">Lost in the Desert of Pages</div>
+      <div class="error-desc">
+        The page you seek has been buried beneath the sands of time.<br>
+        Even the ancient pharaohs could not find it.
+      </div>
+      <div class="mb-3">
+        <span class="ankh">☥</span>
+        <span class="camel">🐪</span>
+        <span class="ankh">☥</span>
+      </div>
+      <a href="/" class="btn-golden">Return to the Kingdom</a>
+    </div>
+
+    <!-- Pyramids -->
+    <div class="pyramids">
+      <div class="pyramid pyramid-sm"></div>
+      <div class="pyramid pyramid-lg"></div>
+      <div class="pyramid pyramid-md"></div>
+    </div>
+
+    <!-- Desert -->
+    <div class="desert-ground" style="width:100%; max-width:none; border-radius:0;"></div>
+  </div>
+
+  <script>
+    // Generate random stars
+    const starsEl = document.getElementById('stars');
+    for(let i = 0; i < 80; i++) {
+      const s = document.createElement('div');
+      s.className = 'star';
+      const size = Math.random() * 3 + 1;
+      s.style.cssText = `
+        width:${size}px; height:${size}px;
+        top:${Math.random()*100}%; left:${Math.random()*100}%;
+        animation-delay:${Math.random()*3}s;
+        animation-duration:${1.5+Math.random()*2}s;
+      `;
+      starsEl.appendChild(s);
+    }
+  </script>
+</body>
+</html>

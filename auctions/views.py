@@ -18,6 +18,8 @@ from django.views.decorators.http import require_GET, require_POST
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.views.decorators.csrf import csrf_exempt
+from django.core.mail import send_mail
+from django.template.loader import render_to_string
 
 from .models import (
     AuctionItem,
@@ -105,20 +107,61 @@ def home(request: HttpRequest) -> HttpResponse:
     return render(request, 'auctions/home.html', {'items': items})
 
 
+def _send_verification_email(request: HttpRequest, user, profile) -> None:
+    """Send email verification link to the user's registered email."""
+    try:
+        verify_url = request.build_absolute_uri(
+            f"/verify/?email_token={profile.email_verify_token}"
+        )
+        site_name = getattr(settings, 'SITE_NAME', 'BidBazaar Auctions')
+        subject = f"Verify your email — {site_name}"
+        message = (
+            f"Namaste {user.username},\n\n"
+            f"Welcome to {site_name}! Please verify your email address by clicking the link below:\n\n"
+            f"{verify_url}\n\n"
+            f"This link is unique to your account. Do not share it.\n\n"
+            f"— {site_name} Team"
+        )
+        send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [user.email], fail_silently=True)
+    except Exception:
+        pass
+
+
+def _send_otp_email(request: HttpRequest, user, profile) -> None:
+    """Send phone OTP to user's registered email."""
+    try:
+        site_name = getattr(settings, 'SITE_NAME', 'BidBazaar Auctions')
+        subject = f"Your OTP code — {site_name}"
+        message = (
+            f"Namaste {user.username},\n\n"
+            f"Your phone verification OTP is:\n\n"
+            f"  {profile.phone_otp_code}\n\n"
+            f"Enter this 6-digit code on the verification page.\n"
+            f"This OTP is valid for your current session only.\n\n"
+            f"— {site_name} Team"
+        )
+        send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [user.email], fail_silently=True)
+    except Exception:
+        pass
+
+
 def register_view(request: HttpRequest) -> HttpResponse:
     if request.method == 'POST':
         form = RegistrationForm(request.POST)
         if form.is_valid():
             user = form.save()
+            profile, _ = UserProfile.objects.get_or_create(user=user)
+            # Send email verification link and OTP to user's email
+            _send_verification_email(request, user, profile)
+            _send_otp_email(request, user, profile)
             # Authenticate before login so the auth backend is set
             raw_password = form.cleaned_data.get('password1')
             authenticated_user = authenticate(request, username=user.username, password=raw_password)
             if authenticated_user is not None:
                 login(request, authenticated_user)
-                messages.success(request, 'Account created. Verify your phone and email.')
+                messages.success(request, f'Account created! We sent a verification link and OTP to {user.email}.')
                 return redirect('verify')
-            # If authentication fails (unlikely), ask the user to log in manually
-            messages.success(request, 'Account created. Please log in to continue verification.')
+            messages.success(request, 'Account created. Please log in.')
             return redirect('login')
     else:
         form = RegistrationForm()
@@ -902,7 +945,22 @@ def resend_phone_otp(request: HttpRequest) -> HttpResponse:
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
     profile.phone_otp_code = ''.join(random.choices(string.digits, k=6))
     profile.save(update_fields=['phone_otp_code'])
-    messages.info(request, f"New OTP generated: {profile.phone_otp_code}")
+    _send_otp_email(request, request.user, profile)
+    messages.info(request, f"New OTP sent to your email: {request.user.email}")
+    return redirect('verify')
+
+
+@login_required
+def resend_email_verification(request: HttpRequest) -> HttpResponse:
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if profile.email_verified_at:
+        messages.info(request, 'Email is already verified.')
+        return redirect('verify')
+    if not profile.email_verify_token:
+        profile.email_verify_token = secrets.token_hex(16)
+        profile.save(update_fields=['email_verify_token'])
+    _send_verification_email(request, request.user, profile)
+    messages.success(request, f'Verification link resent to {request.user.email}. Check your inbox.')
     return redirect('verify')
 
 
@@ -1301,4 +1359,4 @@ def serialize_model_data(queryset):
 
 
 def index(request):
-	return render(request,"index.html")
+        return render(request,"index.html")

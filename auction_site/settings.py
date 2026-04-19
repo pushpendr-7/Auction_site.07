@@ -233,5 +233,24 @@ PLATFORM_BANK_HOLDER_NAME = os.environ.get("PLATFORM_BANK_HOLDER_NAME", "")
 PLATFORM_BANK_ACCOUNT_NUMBER = os.environ.get("PLATFORM_BANK_ACCOUNT_NUMBER", "")
 PLATFORM_BANK_IFSC = os.environ.get("PLATFORM_BANK_IFSC", "")
 
+# Site name used in emails and SEO
+SITE_NAME = os.environ.get("SITE_NAME", "BidBazaar Auctions")
+SITE_DOMAIN = os.environ.get("SITE_DOMAIN", "")
+
+# Email configuration
+# Set EMAIL_HOST_USER and EMAIL_HOST_PASSWORD env vars for Gmail SMTP
+# Gmail: Enable "App Password" in Google Account > Security > 2-Step Verification > App passwords
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "noreply@bidbazaar.com")
+
+if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
 
 
