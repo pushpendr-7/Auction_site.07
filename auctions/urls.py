@@ -31,6 +31,7 @@ urlpatterns = [
     path('items/<int:pk>/presence/', views.presence_ping, name='presence_ping'),
     path('items/<int:pk>/penalty/pay/', views.pay_penalty, name='pay_penalty'),
     path('items/<int:pk>/settle/', views.settle, name='settle'),
+    path('items/<int:pk>/delivery/', views.submit_delivery, name='submit_delivery'),
     path('verify/', views.verify, name='verify'),
     path('verify/resend-otp/', views.resend_phone_otp, name='resend_phone_otp'),
     path('verify/resend-email/', views.resend_email_verification, name='resend_email_verification'),

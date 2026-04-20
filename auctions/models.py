@@ -7,22 +7,33 @@ import uuid
 User = get_user_model()
 
 
+DELIVERY_MODE_CHOICES = [
+    ('home_delivery', 'Home Delivery (Courier/Delivery Boy)'),
+    ('self_pickup',   'Self Pickup (Buyer Comes to Seller)'),
+    ('both',          'Both Options Available'),
+]
+
 class AuctionItem(models.Model):
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='owned_items')
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
-    image = models.ImageField(upload_to='items/')
-    address = models.CharField(max_length=255, help_text='Pickup/Shipping address')
+    image = models.ImageField(upload_to='items/', blank=True, null=True)
+    # Pickup location
+    address = models.CharField(max_length=255, help_text='Seller ka pickup address (gali/mohalla/colony)')
+    pickup_city = models.CharField(max_length=100, blank=True, default='', help_text='Pickup city/town')
+    pickup_pincode = models.CharField(max_length=10, blank=True, default='', help_text='Pickup PIN code')
+    # Delivery options
+    delivery_mode = models.CharField(max_length=20, choices=DELIVERY_MODE_CHOICES, default='home_delivery')
+    delivery_charges = models.DecimalField(max_digits=8, decimal_places=2, default=0, help_text='Delivery charge in ₹ (0 = free)')
+    # Pricing
     starting_price = models.DecimalField(max_digits=12, decimal_places=2)
     buy_now_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     starts_at = models.DateTimeField(default=timezone.now)
     ends_at = models.DateTimeField()
     is_active = models.BooleanField(default=True)
-    seat_limit = models.PositiveIntegerField(default=0, help_text='Max seats available to bid')
+    seat_limit = models.PositiveIntegerField(default=0, help_text='Max seats (0 = unlimited)')
     is_settled = models.BooleanField(default=False)
-    # When the seller starts a live video call for this item
     call_started_at = models.DateTimeField(null=True, blank=True)
-    # Optional Google Meet link for the live call
     meet_url = models.URLField(max_length=255, blank=True)
 
     def __str__(self) -> str:
@@ -122,6 +133,12 @@ class Order(models.Model):
     buyer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='orders')
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     status = models.CharField(max_length=20, default='created')  # created, paid, delivered, cancelled
+    # Buyer delivery details (filled after winning bid)
+    delivery_name = models.CharField(max_length=120, blank=True, default='')
+    delivery_phone = models.CharField(max_length=20, blank=True, default='')
+    delivery_address = models.TextField(blank=True, default='')
+    delivery_city = models.CharField(max_length=100, blank=True, default='')
+    delivery_pincode = models.CharField(max_length=10, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     paid_at = models.DateTimeField(null=True, blank=True)
 

@@ -1,249 +1,306 @@
 {% extends 'auctions/base.html' %}
-{% block title %}{{ item.title }}{% endblock %}
+{% block title %}{{ item.title }} — BidBazaar{% endblock %}
 {% block content %}
-<div class="row g-3">
+
+<div class="row g-4">
+  <!-- Left: Image -->
   <div class="col-md-6">
-    <img src="{{ item.image.url }}" alt="{{ item.title }}" class="img-fluid rounded">
-  </div>
-  <div class="col-md-6">
-    <h1 class="h3">{{ item.title }}</h1>
-    <p>{{ item.description }}</p>
-    <p class="text-muted">Address: {{ item.address }}</p>
-    <p>Starting price: <strong>{{ item.starting_price }}</strong></p>
-    <p>Highest bid: <strong id="highest-amount">{% if item.highest_bid %}{{ item.highest_bid.amount }}{% else %}-{% endif %}</strong></p>
-    <p>Participants: {{ item.participants_count }}{% if item.seat_limit %} / {{ item.seat_limit }} seats{% endif %}</p>
-    <p>Ends at: {{ item.ends_at }}</p>
-
-    {% if user.is_authenticated %}
-      {% if participant and participant.is_booked %}
-        <div class="alert alert-success py-2">
-          Seat booked. Code: <strong>{{ participant.booking_code }}</strong>
-        </div>
-        <div class="d-flex flex-wrap gap-2 mb-2">
-          <a href="/items/{{ item.pk }}/unbook/" class="btn btn-outline-warning btn-sm">Unbook seat</a>
-          <div class="dropdown">
-            <button class="btn btn-outline-danger btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Pay penalty ₹200 (UPI)</button>
-            <ul class="dropdown-menu">
-              <li><a class="dropdown-item" href="/items/{{ item.pk }}/penalty/pay/?provider=gpay">Google Pay</a></li>
-              <li><a class="dropdown-item" href="/items/{{ item.pk }}/penalty/pay/?provider=phonepe">PhonePe</a></li>
-            </ul>
-          </div>
-        </div>
-      {% else %}
-        <div class="mb-2 d-flex flex-wrap gap-2">
-          <div class="dropdown">
-            <button class="btn btn-outline-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Book seat ₹5 (UPI)</button>
-            <ul class="dropdown-menu">
-              <li><a class="dropdown-item" href="/items/{{ item.pk }}/book/?provider=gpay">Google Pay</a></li>
-              <li><a class="dropdown-item" href="/items/{{ item.pk }}/book/?provider=phonepe">PhonePe</a></li>
-            </ul>
-          </div>
-        </div>
-      {% endif %}
-
-      {% if item.owner_id != user.id %}
-      <form action="/items/{{ item.pk }}/bid/" method="post" class="row gy-2 gx-2 align-items-center">
-        {% csrf_token %}
-        <div class="col-auto">
-          <input type="number" step="0.01" min="0" name="amount" class="form-control" placeholder="Your bid" required>
-        </div>
-        <div class="col-auto">
-          <button class="btn btn-outline-primary">Place bid</button>
-        </div>
-      </form>
-      {% else %}
-      <div class="alert alert-info py-2 mt-2">Owners cannot place bids.</div>
-      {% endif %}
-
-      {% if item.buy_now_price and item.owner_id != user.id %}
-      <div class="mt-3">
-        <div class="dropdown">
-          <button class="btn btn-success dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Buy now {{ item.buy_now_price }} (UPI)</button>
-          <ul class="dropdown-menu">
-            <li><a class="dropdown-item" href="/items/{{ item.pk }}/buy/?provider=gpay">Google Pay</a></li>
-            <li><a class="dropdown-item" href="/items/{{ item.pk }}/buy/?provider=phonepe">PhonePe</a></li>
-          </ul>
-        </div>
+    {% if item.image %}
+      <img src="{{ item.image.url }}" alt="{{ item.title }}" class="img-fluid rounded shadow-sm">
+    {% else %}
+      <div class="bg-secondary rounded d-flex align-items-center justify-content-center" style="height:300px;">
+        <span class="text-white fs-1">📦</span>
       </div>
-      {% endif %}
+    {% endif %}
+  </div>
 
-      {% if item.owner_id == user.id %}
-      <div class="mt-3 d-flex flex-column gap-2">
-        <div class="d-flex gap-2">
-          <a href="/items/{{ item.pk }}/preview/start/" class="btn btn-outline-info btn-sm">Start 10-min Preview</a>
-          {% if not item.call_started_at %}
-          <a href="/items/{{ item.pk }}/call/start/" class="btn btn-outline-light btn-sm">Start Video Call</a>
-          {% else %}
-          <a href="/items/{{ item.pk }}/call/" class="btn btn-outline-light btn-sm">Enter Call Room</a>
-          {% endif %}
-          <a href="/items/{{ item.pk }}/settle/" class="btn btn-outline-light btn-sm">Settle Auction</a>
+  <!-- Right: Info -->
+  <div class="col-md-6">
+    <h1 class="h3 fw-bold">{{ item.title }}</h1>
+    {% if item.description %}
+      <p class="text-muted">{{ item.description }}</p>
+    {% endif %}
+
+    <!-- Pricing -->
+    <div class="card border-0 bg-light mb-3">
+      <div class="card-body py-2 px-3">
+        <div class="d-flex justify-content-between align-items-center">
+          <span class="text-muted small">Shuru Ki Kimat</span>
+          <span class="fw-bold text-success fs-5">₹{{ item.starting_price }}</span>
         </div>
-        <form action="/items/{{ item.pk }}/meet/" method="post" class="d-flex gap-2 align-items-center">
-          {% csrf_token %}
-          <input type="url" name="meet_url" class="form-control form-control-sm" placeholder="https://meet.google.com/xxx-xxxx-xxx" value="{{ item.meet_url }}">
-          <button class="btn btn-outline-success btn-sm">Save Meet link</button>
-          {% if item.meet_url %}
-            <a href="{{ item.meet_url }}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm">Open Meet</a>
-          {% endif %}
-        </form>
-        <div class="small text-muted">Your UPI ID on profile: {% if owner_upi_vpa %}<span class="font-monospace">{{ owner_upi_vpa }}</span>{% else %}<em>Not set</em>{% endif %}. Update in <a href="/wallet/">Wallet</a>.</div>
-        {% if owner_bank_accounts %}
-        <div class="mt-2">
-          <div class="fw-bold">Your bank deposit instructions</div>
-          <ul class="list-group">
-            {% for ba in owner_bank_accounts %}
-              <li class="list-group-item">
-                <div class="small text-muted">{{ ba.bank_name }} (****{{ ba.account_number|slice:"-4:" }}) · {{ ba.ifsc }}</div>
-                {% if ba.deposit_instructions %}
-                  <div class="small">{{ ba.deposit_instructions }}</div>
-                {% endif %}
-                {% if ba.is_verified %}
-                  <span class="badge bg-success">Verified</span>
-                {% else %}
-                  <span class="badge bg-warning text-dark">Unverified</span>
-                {% endif %}
-              </li>
-            {% empty %}
-              <li class="list-group-item">No bank accounts added.</li>
-            {% endfor %}
-          </ul>
+        <div class="d-flex justify-content-between align-items-center">
+          <span class="text-muted small">Abhi Ki Sabse Badi Boli</span>
+          <span class="fw-bold text-primary fs-5" id="highest-amount">{% if item.highest_bid %}₹{{ item.highest_bid.amount }}{% else %}—{% endif %}</span>
+        </div>
+        {% if item.buy_now_price %}
+        <div class="d-flex justify-content-between align-items-center">
+          <span class="text-muted small">Abhi Kharido (Fixed)</span>
+          <span class="fw-bold text-danger">₹{{ item.buy_now_price }}</span>
         </div>
         {% endif %}
       </div>
+    </div>
+
+    <!-- Pickup & Delivery Info -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header fw-semibold bg-success text-white py-2">📍 Pickup & Delivery Jankari</div>
+      <div class="card-body py-2 px-3">
+        <div class="row g-1 small">
+          <div class="col-6"><span class="text-muted">Address:</span></div>
+          <div class="col-6 fw-semibold">{{ item.address }}{% if item.pickup_city %}, {{ item.pickup_city }}{% endif %}{% if item.pickup_pincode %} — {{ item.pickup_pincode }}{% endif %}</div>
+          <div class="col-6"><span class="text-muted">Delivery:</span></div>
+          <div class="col-6 fw-semibold">{{ item.get_delivery_mode_display }}</div>
+          <div class="col-6"><span class="text-muted">Delivery Charge:</span></div>
+          <div class="col-6 fw-semibold">{% if item.delivery_charges and item.delivery_charges > 0 %}₹{{ item.delivery_charges }}{% else %}<span class="text-success">Free</span>{% endif %}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Timing -->
+    <div class="small text-muted mb-3">
+      🕐 Boli band hogi: <strong>{{ item.ends_at|date:"d M Y, h:i A" }}</strong> &nbsp;|&nbsp;
+      👥 {% if item.seat_limit %}{{ item.participants_count }}/{{ item.seat_limit }} seats{% else %}{{ item.participants_count }} booked{% endif %}
+    </div>
+
+    {% if user.is_authenticated %}
+
+      <!-- ===== AUCTION ENDED — WINNER SECTION ===== -->
+      {% if winner and user == winner %}
+      <div class="card border-success mb-3" style="border-width:2px;">
+        <div class="card-header bg-success text-white fw-bold">🏆 Badhai Ho! Aapne Yeh Auction Jeeti!</div>
+        <div class="card-body">
+          <p class="mb-2 fw-semibold">Aapko ₹{{ item.highest_bid.amount }} payment karni hai seller ko:</p>
+          {% if seller_upi %}
+          <div class="alert alert-warning py-2 mb-2">
+            <strong>💳 Seller Ka UPI ID:</strong><br>
+            <span class="font-monospace fs-5">{{ seller_upi }}</span>
+            <button class="btn btn-sm btn-outline-secondary ms-2" onclick="navigator.clipboard.writeText('{{ seller_upi }}');this.textContent='Copied!'">Copy</button>
+          </div>
+          {% endif %}
+          {% if seller_bank %}
+          <div class="small text-muted mb-2">
+            🏦 Bank: {{ seller_bank.bank_name }} | A/C: ****{{ seller_bank.account_number|slice:"-4:" }} | IFSC: {{ seller_bank.ifsc }}
+          </div>
+          {% endif %}
+          <div class="d-flex gap-2 mb-3">
+            <a href="/items/{{ item.pk }}/payments/?provider=gpay" class="btn btn-success btn-sm">Pay via Google Pay</a>
+            <a href="/items/{{ item.pk }}/payments/?provider=phonepe" class="btn btn-sm text-white" style="background:#5f259f;">Pay via PhonePe</a>
+          </div>
+
+          <!-- Delivery Address Form -->
+          {% if not winner_order or not winner_order.delivery_address %}
+          <hr>
+          <p class="fw-semibold mb-2">📦 Delivery Address Bharo (Kahan Pahunchana Hai Item):</p>
+          <form method="post" action="/items/{{ item.pk }}/delivery/" class="needs-validation" novalidate>
+            {% csrf_token %}
+            <div class="mb-2">
+              <input type="text" name="delivery_name" class="form-control form-control-sm" placeholder="Aapka Poora Naam *" required>
+            </div>
+            <div class="mb-2">
+              <input type="tel" name="delivery_phone" class="form-control form-control-sm" placeholder="Mobile Number *" required>
+            </div>
+            <div class="mb-2">
+              <textarea name="delivery_address" class="form-control form-control-sm" rows="2" placeholder="Ghar Ka Pata — Gali, Mohalla, Colony *" required></textarea>
+            </div>
+            <div class="row g-2 mb-2">
+              <div class="col">
+                <input type="text" name="delivery_city" class="form-control form-control-sm" placeholder="City / Town *" required>
+              </div>
+              <div class="col">
+                <input type="text" name="delivery_pincode" class="form-control form-control-sm" placeholder="PIN Code *" maxlength="6" required>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">📤 Address Save Karo</button>
+          </form>
+          {% else %}
+          <div class="alert alert-success py-2 small">
+            ✅ Delivery address save ho gaya:<br>
+            <strong>{{ winner_order.delivery_name }}</strong> | {{ winner_order.delivery_phone }}<br>
+            {{ winner_order.delivery_address }}, {{ winner_order.delivery_city }} — {{ winner_order.delivery_pincode }}
+          </div>
+          {% endif %}
+        </div>
+      </div>
       {% endif %}
+
+      <!-- ===== AUCTION ENDED — SELLER SECTION ===== -->
+      {% if item.is_settled and item.owner_id == user.id %}
+      <div class="card border-info mb-3">
+        <div class="card-header bg-info text-white fw-bold">💰 Auction Settle Ho Gayi</div>
+        <div class="card-body small">
+          {% if winner %}
+          <p>🏆 Winner: <strong>{{ winner.username }}</strong></p>
+          {% if winner_order and winner_order.delivery_address %}
+          <p>📦 <strong>Delivery Address:</strong><br>
+            {{ winner_order.delivery_name }} | {{ winner_order.delivery_phone }}<br>
+            {{ winner_order.delivery_address }}, {{ winner_order.delivery_city }} — {{ winner_order.delivery_pincode }}
+          </p>
+          <p class="text-muted">Yeh address pe item pahunchana hai ya winner yahan se pickup karega.</p>
+          {% else %}
+          <p class="text-muted">Winner ne abhi tak delivery address nahi diya.</p>
+          {% endif %}
+          {% else %}
+          <p class="text-muted">Koi winner nahi mila.</p>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- ===== ACTIVE AUCTION ACTIONS ===== -->
+      {% if not item.is_settled %}
+
+        <!-- Seat Booking -->
+        {% if participant and participant.is_booked %}
+          <div class="alert alert-success py-2 mb-2">
+            ✅ Seat booked hai. Aapka code: <strong class="font-monospace">{{ participant.booking_code }}</strong>
+          </div>
+          <div class="d-flex flex-wrap gap-2 mb-2">
+            <a href="/items/{{ item.pk }}/unbook/" class="btn btn-outline-warning btn-sm">Seat Cancel Karo</a>
+            <div class="dropdown">
+              <button class="btn btn-outline-danger btn-sm dropdown-toggle" data-bs-toggle="dropdown">⚠️ Penalty ₹200 Bharo</button>
+              <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="/items/{{ item.pk }}/penalty/pay/?provider=gpay">Google Pay</a></li>
+                <li><a class="dropdown-item" href="/items/{{ item.pk }}/penalty/pay/?provider=phonepe">PhonePe</a></li>
+              </ul>
+            </div>
+          </div>
+        {% elif item.owner_id != user.id %}
+          <div class="mb-2 d-flex flex-wrap gap-2">
+            <div class="dropdown">
+              <button class="btn btn-outline-success btn-sm dropdown-toggle" data-bs-toggle="dropdown">🎫 Seat Book Karo (₹5)</button>
+              <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="/items/{{ item.pk }}/book/?provider=gpay">Google Pay se</a></li>
+                <li><a class="dropdown-item" href="/items/{{ item.pk }}/book/?provider=phonepe">PhonePe se</a></li>
+              </ul>
+            </div>
+          </div>
+        {% endif %}
+
+        <!-- Bid Form -->
+        {% if item.owner_id != user.id %}
+        <form action="/items/{{ item.pk }}/bid/" method="post" class="d-flex gap-2 align-items-center mb-2">
+          {% csrf_token %}
+          <div class="input-group">
+            <span class="input-group-text">₹</span>
+            <input type="number" step="1" min="1" name="amount" class="form-control" placeholder="Boli rakam dalein" required>
+            <button class="btn btn-primary">Boli Lagao</button>
+          </div>
+        </form>
+        {% else %}
+          <div class="alert alert-info py-2 mt-2 small">Aap is item ke malik hain — boli nahi laga sakte.</div>
+        {% endif %}
+
+        <!-- Buy Now -->
+        {% if item.buy_now_price and item.owner_id != user.id %}
+        <div class="mt-2">
+          <div class="dropdown">
+            <button class="btn btn-danger dropdown-toggle" data-bs-toggle="dropdown">⚡ Abhi Kharido — ₹{{ item.buy_now_price }}</button>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="/items/{{ item.pk }}/buy/?provider=gpay">Google Pay</a></li>
+              <li><a class="dropdown-item" href="/items/{{ item.pk }}/buy/?provider=phonepe">PhonePe</a></li>
+            </ul>
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- Owner Controls -->
+        {% if item.owner_id == user.id %}
+        <div class="mt-3 d-flex flex-column gap-2">
+          <div class="d-flex flex-wrap gap-2">
+            <a href="/items/{{ item.pk }}/preview/start/" class="btn btn-outline-info btn-sm">10-Min Preview Shuru Karo</a>
+            {% if not item.call_started_at %}
+            <a href="/items/{{ item.pk }}/call/start/" class="btn btn-outline-secondary btn-sm">Video Call Shuru Karo</a>
+            {% else %}
+            <a href="/items/{{ item.pk }}/call/" class="btn btn-outline-secondary btn-sm">Call Room Mein Jao</a>
+            {% endif %}
+            <a href="/items/{{ item.pk }}/settle/" class="btn btn-outline-dark btn-sm">Auction Settle Karo</a>
+          </div>
+          <form action="/items/{{ item.pk }}/meet/" method="post" class="d-flex gap-2 align-items-center">
+            {% csrf_token %}
+            <input type="url" name="meet_url" class="form-control form-control-sm" placeholder="https://meet.google.com/xxx-xxxx-xxx" value="{{ item.meet_url }}">
+            <button class="btn btn-outline-success btn-sm">Save</button>
+            {% if item.meet_url %}<a href="{{ item.meet_url }}" target="_blank" class="btn btn-outline-primary btn-sm">Open</a>{% endif %}
+          </form>
+          <div class="small text-muted">
+            Aapka UPI ID: {% if owner_upi_vpa %}<span class="font-monospace fw-bold">{{ owner_upi_vpa }}</span>{% else %}<em class="text-danger">Set nahi hai!</em>{% endif %}
+            — <a href="/wallet/">Wallet mein set karo</a>
+          </div>
+        </div>
+        {% endif %}
+
+      {% endif %}
+
     {% else %}
-      <div class="alert alert-warning">Please <a href="/login/">login</a> to bid or buy.</div>
+      <div class="alert alert-warning"><a href="/login/">Login karo</a> boli lagane ke liye.</div>
     {% endif %}
   </div>
 </div>
 
-<hr>
-<h2 class="h5">Bids</h2>
+<hr class="my-4">
+
+<!-- Live Bids Section -->
+<h2 class="h5 mb-3">📊 Live Bids</h2>
 <div id="live-bids">
-  <ul class="list-group" id="bids-list">
+  <ul class="list-group mb-2" id="bids-list">
     {% for bid in bids %}
-      <li class="list-group-item d-flex justify-content-between">
-        <span>{{ bid.bidder.username }}</span>
-        <span>{{ bid.amount }}{% if not bid.is_active %} <span class="text-muted">(inactive)</span>{% endif %}</span>
-        <span class="text-muted">{{ bid.created_at|date:'Y-m-d H:i:s' }}</span>
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">{{ bid.bidder.username }}</span>
+        <span class="text-primary fw-bold">₹{{ bid.amount }}{% if not bid.is_active %} <span class="badge bg-secondary">Inactive</span>{% endif %}</span>
+        <span class="text-muted small">{{ bid.created_at|date:"d M, h:i A" }}</span>
       </li>
     {% empty %}
-      <li class="list-group-item">No bids yet.</li>
+      <li class="list-group-item text-muted">Abhi tak koi boli nahi aayi.</li>
     {% endfor %}
   </ul>
-  <div class="small text-muted mt-1">Auto-refreshing…</div>
-  <script>
-  (function(){
-    var ws;
-    function renderBids(data){
-      var el = document.getElementById('bids-list');
-      if (!el) return;
-      if (!data.bids || !data.bids.length){
-        el.innerHTML = '<li class="list-group-item">No bids yet.</li>';
-        var hi = document.getElementById('highest-amount');
-        if (hi) hi.textContent = '-';
-        return;
-      }
-      el.innerHTML = data.bids.map(function(b){
-        var inactive = b.is_active ? '' : ' <span class="text-muted">(inactive)</span>';
-        var ts = new Date(b.created_at).toLocaleString();
-        return '<li class="list-group-item d-flex justify-content-between">'
-          + '<span>' + b['bidder__username'] + '</span>'
-          + '<span>' + b.amount + inactive + '</span>'
-          + '<span class="text-muted">' + ts + '</span>'
-          + '</li>';
-      }).join('');
-      // Update header highest amount to top active bid
-      var hi = document.getElementById('highest-amount');
-      if (hi) {
-        var top = data.bids.find(function(b){ return b.is_active; }) || data.bids[0];
-        hi.textContent = top ? top.amount : '-';
-      }
-    }
-    function tick(){
-      fetch('/items/{{ item.pk }}/bids.json').then(function(r){ return r.json(); }).then(renderBids).catch(function(){});
-    }
-    // Try WebSocket first; fallback to polling
-    try {
-      var scheme = (window.location.protocol === 'https:') ? 'wss' : 'ws';
-      ws = new WebSocket(scheme + '://' + window.location.host + '/ws/auctions/{{ item.pk }}/');
-      ws.onmessage = function(evt){
-        try {
-          var msg = JSON.parse(evt.data);
-          if (msg && msg.type === 'new_bid' && msg.bid){
-            // Merge with latest server state to avoid divergence
-            tick();
-          }
-        } catch (e) {}
-      };
-      ws.onopen = function(){ /* connected */ };
-      ws.onerror = function(){ setInterval(tick, 4000); };
-      ws.onclose = function(){ setInterval(tick, 4000); };
-    } catch (e){
-      setInterval(tick, 4000);
-    }
-    // Initial load
-    tick();
-  })();
-  </script>
-  </div>
-
-<div class="mt-3 small text-muted">
-  <strong>Rules:</strong>
-  <ul>
-    <li>Sab bids sabko dikhengi: kisne, kab (exact time), aur kitni rakam.</li>
-    <li>Minimum bid: Base price se zyada hi bid lagegi. Kam hui to reject.</li>
-    <li>Bid se pehle wallet recharge zaroori. Balance kam hua to bid place nahi hogi.</li>
-    <li>Winner decide hote hi amount auto-deduct hoga. Nahi jeete to paise safe.</li>
-  </ul>
-  Optional: Bank linking available; jeetne par direct bank se deduction ho sakta hai.
-  <a href="/wallet/">Wallet</a>
-  |
-  <a href="/history/">History</a>
+  <div class="small text-muted">🔄 Auto-refresh ho rahi hai…</div>
 </div>
 
-<hr>
-<h2 class="h6">Join with code</h2>
+<!-- Code Verification -->
+<hr class="my-4">
+<h6>🔑 Booking Code Verify Karo</h6>
 <form action="/join/" method="post" class="row g-2">
   {% csrf_token %}
   <input type="hidden" name="item_id" value="{{ item.pk }}">
-  <div class="col-auto"><input type="text" name="code" class="form-control" placeholder="CODE" required></div>
-  <div class="col-auto"><button class="btn btn-outline-primary btn-sm">Verify Code</button></div>
-  {% if has_verified_code %}
-    <div class="col-12 small text-success">Code verified for this session.</div>
-  {% endif %}
-  {% if participant and participant.is_booked and not participant.unbooked_at and not has_verified_code %}
-    <div class="col-12 small text-muted">Enter your unique code to enable call join.</div>
-  {% endif %}
+  <div class="col-auto"><input type="text" name="code" class="form-control form-control-sm" placeholder="CODE" required></div>
+  <div class="col-auto"><button class="btn btn-outline-primary btn-sm">Verify</button></div>
+  {% if has_verified_code %}<div class="col-12 small text-success">✅ Code verified hai is session mein.</div>{% endif %}
 </form>
 
 {% if user.is_authenticated and item.call_started_at %}
 <div class="mt-3">
   {% if item.owner_id == user.id %}
-    {% if item.meet_url %}
-      <a href="{{ item.meet_url }}" target="_blank" rel="noopener" class="btn btn-outline-light btn-sm">Enter Google Meet</a>
-    {% else %}
-      <span class="text-warning small">Set a Google Meet link above.</span>
-    {% endif %}
+    {% if item.meet_url %}<a href="{{ item.meet_url }}" target="_blank" class="btn btn-outline-primary btn-sm">Google Meet Mein Jao</a>
+    {% else %}<span class="text-warning small">Meet link set karo upar.</span>{% endif %}
   {% elif participant and participant.is_booked and not participant.unbooked_at and has_verified_code %}
-    {% if item.meet_url %}
-      <a href="{{ item.meet_url }}" target="_blank" rel="noopener" class="btn btn-outline-light btn-sm">Join Google Meet</a>
-    {% else %}
-      <span class="text-muted small">Waiting for seller to provide Google Meet link.</span>
-    {% endif %}
+    {% if item.meet_url %}<a href="{{ item.meet_url }}" target="_blank" class="btn btn-outline-primary btn-sm">Google Meet Join Karo</a>
+    {% else %}<span class="text-muted small">Seller meet link set nahi ki abhi.</span>{% endif %}
   {% else %}
-    <div class="alert alert-info py-2">Seat booking and code verification required to join the call.</div>
+    <div class="alert alert-info py-2 small">Seat booking aur code verify karo call join karne ke liye.</div>
   {% endif %}
-  <p class="text-muted small mt-2">Only the seller can start the call. Booked users can join.</p>
-  </div>
+</div>
 {% endif %}
 
+<div class="mt-3 small text-muted border-top pt-2">
+  <strong>Niyam:</strong>
+  Boli sirf booked seat wale laga sakte hain.
+  Winner ko amount auto-deduct hoga. Nahi jeete to paise wapas.
+  Delivery mode: <strong>{{ item.get_delivery_mode_display }}</strong>.
+  <a href="/wallet/">Wallet</a> | <a href="/history/">History</a>
+</div>
+
 <script>
-  // Presence ping every 10s if authenticated
-  {% if user.is_authenticated %}
-  setInterval(() => {
-    fetch('/items/{{ item.pk }}/presence/');
-  }, 10000);
-  {% endif %}
+(function(){
+  function renderBids(data){
+    var el=document.getElementById('bids-list');
+    if(!el)return;
+    if(!data.bids||!data.bids.length){el.innerHTML='<li class="list-group-item text-muted">Abhi tak koi boli nahi aayi.</li>';document.getElementById('highest-amount').textContent='—';return;}
+    el.innerHTML=data.bids.map(function(b){var inactive=b.is_active?'':'<span class="badge bg-secondary ms-1">Inactive</span>';var ts=new Date(b.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});return'<li class="list-group-item d-flex justify-content-between align-items-center"><span class="fw-semibold">'+b['bidder__username']+'</span><span class="text-primary fw-bold">₹'+b.amount+inactive+'</span><span class="text-muted small">'+ts+'</span></li>';}).join('');
+    var hi=document.getElementById('highest-amount');if(hi){var top=data.bids.find(function(b){return b.is_active;})||data.bids[0];hi.textContent=top?'₹'+top.amount:'—';}
+  }
+  function tick(){fetch('/items/{{ item.pk }}/bids.json').then(function(r){return r.json();}).then(renderBids).catch(function(){});}
+  try{var scheme=(window.location.protocol==='https:')?'wss':'ws';var ws=new WebSocket(scheme+'://'+window.location.host+'/ws/auctions/{{ item.pk }}/');ws.onmessage=function(){tick();};ws.onerror=ws.onclose=function(){setInterval(tick,4000);};}catch(e){setInterval(tick,4000);}
+  tick();
+})();
+{% if user.is_authenticated %}setInterval(function(){fetch('/items/{{ item.pk }}/presence/');},10000);{% endif %}
 </script>
 {% endblock %}

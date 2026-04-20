@@ -46,38 +46,88 @@ class AuctionItemForm(forms.ModelForm):
     class Meta:
         model = AuctionItem
         fields = [
-            'title',
-            'description',
-            'image',
-            'address',
-            'starting_price',
-            'buy_now_price',
-            'starts_at',
-            'ends_at',
-            'seat_limit',
+            'title', 'description', 'image',
+            'address', 'pickup_city', 'pickup_pincode',
+            'delivery_mode', 'delivery_charges',
+            'starting_price', 'buy_now_price',
+            'starts_at', 'ends_at', 'seat_limit',
         ]
-    
+        widgets = {
+            'title': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Item ka naam'}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': 'Item ki puri jankari likhein'}),
+            'image': forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': 'image/*'}),
+            'address': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Gali / Colony / Mohalla'}),
+            'pickup_city': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Shahar / Town'}),
+            'pickup_pincode': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '6 digit PIN code', 'maxlength': '6'}),
+            'delivery_mode': forms.Select(attrs={'class': 'form-select'}),
+            'delivery_charges': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': '0 = Free delivery', 'min': '0'}),
+            'starting_price': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'Shuru ki kimat (₹)', 'min': '1'}),
+            'buy_now_price': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'Seedha kharidne ki kimat (optional)', 'min': '1'}),
+            'starts_at': forms.DateTimeInput(attrs={'class': 'form-control', 'type': 'datetime-local'}),
+            'ends_at': forms.DateTimeInput(attrs={'class': 'form-control', 'type': 'datetime-local'}),
+            'seat_limit': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': '0 = Unlimited', 'min': '0'}),
+        }
+        labels = {
+            'title': 'Item ka Naam',
+            'description': 'Puri Jankari',
+            'image': 'Photo Upload Karo',
+            'address': 'Pickup Address (Gali/Colony)',
+            'pickup_city': 'Pickup City',
+            'pickup_pincode': 'Pickup PIN Code',
+            'delivery_mode': 'Delivery Kaisi Hogi',
+            'delivery_charges': 'Delivery Charge (₹)',
+            'starting_price': 'Shuru Ki Kimat (₹)',
+            'buy_now_price': 'Abhi Kharido Kimat (₹) — Optional',
+            'starts_at': 'Boli Shuru Kab Hogi',
+            'ends_at': 'Boli Band Kab Hogi',
+            'seat_limit': 'Kitne Log Boli Laga Sakte Hain (0 = Sabko)',
+        }
+
     def clean(self):
         cleaned_data = super().clean()
         starts_at = cleaned_data.get('starts_at')
         ends_at = cleaned_data.get('ends_at')
         starting_price = cleaned_data.get('starting_price')
         buy_now_price = cleaned_data.get('buy_now_price')
-        
+        pickup_pincode = cleaned_data.get('pickup_pincode', '')
+
         if starts_at and ends_at:
             if ends_at <= starts_at:
-                raise forms.ValidationError('End time must be after start time.')
+                raise forms.ValidationError('Boli band hone ka time, shuru hone ke baad hona chahiye.')
             if ends_at <= timezone.now():
-                raise forms.ValidationError('End time must be in the future.')
-        
+                raise forms.ValidationError('Boli band hone ka time future mein hona chahiye.')
+
         if starting_price and starting_price <= 0:
-            raise forms.ValidationError('Starting price must be positive.')
-        
+            raise forms.ValidationError('Shuru ki kimat positive honi chahiye.')
+
         if buy_now_price and starting_price:
             if buy_now_price <= starting_price:
-                raise forms.ValidationError('Buy now price must be higher than starting price.')
-        
+                raise forms.ValidationError('"Abhi Kharido" kimat, shuru ki kimat se zyada honi chahiye.')
+
+        if pickup_pincode and (not pickup_pincode.isdigit() or len(pickup_pincode) != 6):
+            raise forms.ValidationError('PIN code 6 anka ka hona chahiye.')
+
         return cleaned_data
+
+
+class OrderDeliveryForm(forms.ModelForm):
+    class Meta:
+        model = Order
+        fields = ['delivery_name', 'delivery_phone', 'delivery_address', 'delivery_city', 'delivery_pincode']
+        widgets = {
+            'delivery_name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Aapka poora naam'}),
+            'delivery_phone': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '10 digit mobile number'}),
+            'delivery_address': forms.Textarea(attrs={'class': 'form-control', 'rows': 2, 'placeholder': 'Ghar ka pata — Gali, Mohalla, Colony'}),
+            'delivery_city': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Shahar / Town'}),
+            'delivery_pincode': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '6 digit PIN code', 'maxlength': '6'}),
+        }
+        labels = {
+            'delivery_name': 'Naam (Delivery Ke Liye)',
+            'delivery_phone': 'Mobile Number',
+            'delivery_address': 'Delivery Address',
+            'delivery_city': 'City / Town',
+            'delivery_pincode': 'PIN Code',
+        }
 
 
 class RegistrationForm(UserCreationForm):
@@ -203,12 +253,10 @@ def item_create(request: HttpRequest) -> HttpResponse:
 
 def item_detail(request: HttpRequest, pk: int) -> HttpResponse:
     item = get_object_or_404(AuctionItem, pk=pk)
-    # Show recent bids including inactive ones for transparency
     bids = item.bids.select_related('bidder').order_by('-created_at')[:50]
     participant = None
     if request.user.is_authenticated:
         participant = AuctionParticipant.objects.filter(item=item, user=request.user).first()
-    # Whether this user has verified their join code for this item (persisted)
     has_verified_code = False
     if request.user.is_authenticated:
         ap = AuctionParticipant.objects.filter(item=item, user=request.user).only('code_verified_at').first()
@@ -216,7 +264,6 @@ def item_detail(request: HttpRequest, pk: int) -> HttpResponse:
     owner_bank_accounts = None
     owner_upi_vpa = ''
     if request.user.is_authenticated and request.user.id == item.owner_id:
-        # Owner-only visibility
         try:
             owner_bank_accounts = item.owner.bank_accounts.all()
         except Exception:
@@ -226,6 +273,27 @@ def item_detail(request: HttpRequest, pk: int) -> HttpResponse:
             owner_upi_vpa = owner_profile.upi_vpa or ''
         except Exception:
             owner_upi_vpa = ''
+
+    # Winner & seller info (shown after auction ends)
+    winner = None
+    winner_order = None
+    seller_upi = ''
+    seller_bank = None
+    highest = item.highest_bid
+    if highest:
+        winner = highest.bidder
+    if winner and request.user.is_authenticated and request.user == winner:
+        winner_order = Order.objects.filter(item=item, buyer=winner).order_by('-created_at').first()
+        try:
+            seller_profile, _ = UserProfile.objects.get_or_create(user=item.owner)
+            seller_upi = seller_profile.upi_vpa or ''
+        except Exception:
+            pass
+        try:
+            seller_bank = item.owner.bank_accounts.filter(is_verified=True).first() or item.owner.bank_accounts.first()
+        except Exception:
+            pass
+
     return render(request, 'auctions/item_detail.html', {
         'item': item,
         'bids': bids,
@@ -233,7 +301,43 @@ def item_detail(request: HttpRequest, pk: int) -> HttpResponse:
         'has_verified_code': has_verified_code,
         'owner_bank_accounts': owner_bank_accounts,
         'owner_upi_vpa': owner_upi_vpa,
+        'winner': winner,
+        'winner_order': winner_order,
+        'seller_upi': seller_upi,
+        'seller_bank': seller_bank,
     })
+
+
+@login_required
+def submit_delivery(request: HttpRequest, pk: int) -> HttpResponse:
+    """Winner submits their delivery address after winning an auction."""
+    item = get_object_or_404(AuctionItem, pk=pk)
+    highest = item.highest_bid
+    if not highest or highest.bidder != request.user:
+        messages.error(request, 'Sirf auction winner delivery address de sakta hai.')
+        return redirect('item_detail', pk=pk)
+    if request.method != 'POST':
+        return redirect('item_detail', pk=pk)
+    name = request.POST.get('delivery_name', '').strip()
+    phone = request.POST.get('delivery_phone', '').strip()
+    address = request.POST.get('delivery_address', '').strip()
+    city = request.POST.get('delivery_city', '').strip()
+    pincode = request.POST.get('delivery_pincode', '').strip()
+    if not all([name, phone, address, city, pincode]):
+        messages.error(request, 'Sare fields bharna zaroori hai.')
+        return redirect('item_detail', pk=pk)
+    if not pincode.isdigit() or len(pincode) != 6:
+        messages.error(request, 'PIN code 6 anka ka hona chahiye.')
+        return redirect('item_detail', pk=pk)
+    order, _ = Order.objects.get_or_create(item=item, buyer=request.user, defaults={'amount': highest.amount})
+    order.delivery_name = name
+    order.delivery_phone = phone
+    order.delivery_address = address
+    order.delivery_city = city
+    order.delivery_pincode = pincode
+    order.save(update_fields=['delivery_name', 'delivery_phone', 'delivery_address', 'delivery_city', 'delivery_pincode'])
+    messages.success(request, '✅ Delivery address save ho gaya! Seller ko payment karein.')
+    return redirect('item_detail', pk=pk)
 
 
 @login_required

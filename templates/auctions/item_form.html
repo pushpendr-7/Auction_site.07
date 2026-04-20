@@ -1,10 +1,163 @@
 {% extends 'auctions/base.html' %}
-{% block title %}List Item{% endblock %}
+{% block title %}Item List Karo — BidBazaar{% endblock %}
 {% block content %}
-<h1 class="h4 mb-3">List a new item</h1>
-<form method="post" enctype="multipart/form-data" class="card card-body">
-  {% csrf_token %}
-  {{ form.as_p }}
-  <button class="btn btn-primary">Save</button>
-</form>
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="d-flex align-items-center mb-4">
+      <span style="font-size:2rem;">🏷️</span>
+      <div class="ms-3">
+        <h1 class="h3 mb-0">Naya Item Auction Pe Lagao</h1>
+        <p class="text-muted mb-0 small">Poori jankari sahi se bharein — buyers yahi dekhenge</p>
+      </div>
+    </div>
+
+    <form method="post" enctype="multipart/form-data" novalidate>
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="alert alert-danger">
+          {% for err in form.non_field_errors %}<div>⚠️ {{ err }}</div>{% endfor %}
+        </div>
+      {% endif %}
+
+      <!-- SECTION 1: Item Info -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-primary text-white fw-bold">📦 Item Ki Jankari</div>
+        <div class="card-body p-4">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">{{ form.title.label }} <span class="text-danger">*</span></label>
+            {{ form.title }}
+            {% if form.title.errors %}<div class="text-danger small mt-1">{{ form.title.errors.0 }}</div>{% endif %}
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">{{ form.description.label }}</label>
+            {{ form.description }}
+            <div class="form-text">Item ki khasiyat, condition (new/used), brand, size, etc. likhein</div>
+            {% if form.description.errors %}<div class="text-danger small mt-1">{{ form.description.errors.0 }}</div>{% endif %}
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">{{ form.image.label }}</label>
+            {{ form.image }}
+            <div class="form-text">📷 Clear photo upload karein (JPG/PNG). Agar photo nahi hai tab bhi item list ho sakta hai.</div>
+            {% if form.image.errors %}<div class="text-danger small mt-1">{{ form.image.errors.0 }}</div>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- SECTION 2: Pickup Location -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-success text-white fw-bold">📍 Pickup Location (Seller ka Address)</div>
+        <div class="card-body p-4">
+          <p class="text-muted small mb-3">Delivery wala yahan se item uthayega. Buyer bhi yahan se self-pickup kar sakta hai.</p>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">{{ form.address.label }} <span class="text-danger">*</span></label>
+            {{ form.address }}
+            <div class="form-text">Gali, Colony, Mohalla — jitna detail ho utna acha</div>
+            {% if form.address.errors %}<div class="text-danger small mt-1">{{ form.address.errors.0 }}</div>{% endif %}
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">{{ form.pickup_city.label }} <span class="text-danger">*</span></label>
+              {{ form.pickup_city }}
+              {% if form.pickup_city.errors %}<div class="text-danger small mt-1">{{ form.pickup_city.errors.0 }}</div>{% endif %}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">{{ form.pickup_pincode.label }} <span class="text-danger">*</span></label>
+              {{ form.pickup_pincode }}
+              {% if form.pickup_pincode.errors %}<div class="text-danger small mt-1">{{ form.pickup_pincode.errors.0 }}</div>{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SECTION 3: Delivery Options -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header fw-bold" style="background:#ffc107;">🚚 Delivery Options</div>
+        <div class="card-body p-4">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">{{ form.delivery_mode.label }} <span class="text-danger">*</span></label>
+            {{ form.delivery_mode }}
+            {% if form.delivery_mode.errors %}<div class="text-danger small mt-1">{{ form.delivery_mode.errors.0 }}</div>{% endif %}
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">{{ form.delivery_charges.label }}</label>
+            <div class="input-group">
+              <span class="input-group-text">₹</span>
+              {{ form.delivery_charges }}
+            </div>
+            <div class="form-text">0 daalo agar delivery free hai</div>
+            {% if form.delivery_charges.errors %}<div class="text-danger small mt-1">{{ form.delivery_charges.errors.0 }}</div>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- SECTION 4: Pricing -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-danger text-white fw-bold">💰 Kimat (Price)</div>
+        <div class="card-body p-4">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">{{ form.starting_price.label }} <span class="text-danger">*</span></label>
+              <div class="input-group">
+                <span class="input-group-text">₹</span>
+                {{ form.starting_price }}
+              </div>
+              <div class="form-text">Yahan se boli shuru hogi</div>
+              {% if form.starting_price.errors %}<div class="text-danger small mt-1">{{ form.starting_price.errors.0 }}</div>{% endif %}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">{{ form.buy_now_price.label }}</label>
+              <div class="input-group">
+                <span class="input-group-text">₹</span>
+                {{ form.buy_now_price }}
+              </div>
+              <div class="form-text">Seedha kharidne ki kimat (optional)</div>
+              {% if form.buy_now_price.errors %}<div class="text-danger small mt-1">{{ form.buy_now_price.errors.0 }}</div>{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SECTION 5: Timing & Seats -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-info text-white fw-bold">⏰ Boli Ka Time aur Seats</div>
+        <div class="card-body p-4">
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">{{ form.starts_at.label }} <span class="text-danger">*</span></label>
+              {{ form.starts_at }}
+              {% if form.starts_at.errors %}<div class="text-danger small mt-1">{{ form.starts_at.errors.0 }}</div>{% endif %}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">{{ form.ends_at.label }} <span class="text-danger">*</span></label>
+              {{ form.ends_at }}
+              {% if form.ends_at.errors %}<div class="text-danger small mt-1">{{ form.ends_at.errors.0 }}</div>{% endif %}
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">{{ form.seat_limit.label }}</label>
+            {{ form.seat_limit }}
+            <div class="form-text">0 daalo agar unlimited log boli laga sakein</div>
+            {% if form.seat_limit.errors %}<div class="text-danger small mt-1">{{ form.seat_limit.errors.0 }}</div>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Payment Note -->
+      <div class="alert alert-info d-flex align-items-start gap-2 mb-4">
+        <span style="font-size:1.4rem;">💳</span>
+        <div>
+          <strong>Payment Aapko Milegi:</strong><br>
+          Jeetne wala buyer aapko <strong>directly UPI / Bank</strong> se payment karega.<br>
+          Apna UPI ID <a href="/wallet/">Wallet Page</a> pe set karein — wahi ID buyers ko dikhai jayegi.
+        </div>
+      </div>
+
+      <div class="d-grid gap-2 mb-4">
+        <button type="submit" class="btn btn-primary btn-lg">🚀 Item Auction Pe Lagao</button>
+        <a href="/" class="btn btn-outline-secondary">Wapas Jao</a>
+      </div>
+    </form>
+  </div>
+</div>
 {% endblock %}
