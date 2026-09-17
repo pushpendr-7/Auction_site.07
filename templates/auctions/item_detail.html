@@ -83,8 +83,9 @@
           </div>
           {% endif %}
           <div class="d-flex gap-2 mb-3">
-            <a href="/items/{{ item.pk }}/payments/?provider=gpay" class="btn btn-success btn-sm">Pay via Google Pay</a>
-            <a href="/items/{{ item.pk }}/payments/?provider=phonepe" class="btn btn-sm text-white" style="background:#5f259f;">Pay via PhonePe</a>
+            <a href="{% url 'order_payment_start' item.pk %}?provider=gpay" class="btn btn-success btn-sm">Pay via Google Pay</a>
+            <a href="{% url 'order_payment_start' item.pk %}?provider=phonepe" class="btn btn-sm text-white" style="background:#5f259f;">Pay via PhonePe</a>
+            <a href="{% url 'order_payment_start' item.pk %}?provider=bank" class="btn btn-outline-primary btn-sm">Bank / UPI</a>
           </div>
 
           <!-- Delivery Address Form -->

@@ -14,6 +14,7 @@ from django.utils import timezone
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django import forms
 from django.db import transaction
+from django.db.models import Q
 from django.views.decorators.http import require_GET, require_POST
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -38,7 +39,7 @@ from django.urls import reverse
 from .utils import append_ledger_block, get_available_balance, get_or_create_wallet, apply_payment_effects
 from django.conf import settings
 from .blockchain import inr_to_token_quote, validate_native_transfer
-from .forms import BankLinkForm
+from .forms import BankLinkForm, ProfileForm
 from .models import BankAccount
 
 
@@ -152,9 +153,32 @@ class RegistrationForm(UserCreationForm):
 
 
 def home(request: HttpRequest) -> HttpResponse:
-    # Show all items on the home page
-    items = AuctionItem.objects.all().order_by('-ends_at')
-    return render(request, 'auctions/home.html', {'items': items})
+    query = (request.GET.get('q') or '').strip()
+    status = (request.GET.get('status') or 'active').lower()
+    now = timezone.now()
+    items = AuctionItem.objects.select_related('owner').prefetch_related('bids')
+
+    if status == 'ended':
+        items = items.filter(Q(ends_at__lte=now) | Q(is_active=False))
+    elif status == 'all':
+        pass
+    else:
+        status = 'active'
+        items = items.filter(is_active=True, ends_at__gt=now)
+
+    if query:
+        items = items.filter(
+            Q(title__icontains=query)
+            | Q(description__icontains=query)
+            | Q(pickup_city__icontains=query)
+        )
+
+    return render(request, 'auctions/home.html', {
+        'items': items.order_by('ends_at'),
+        'query': query,
+        'status': status,
+        'result_count': items.count(),
+    })
 
 
 def _send_verification_email(request: HttpRequest, user, profile) -> None:
@@ -236,6 +260,26 @@ def logout_view(request: HttpRequest) -> HttpResponse:
 
 
 @login_required
+def profile_view(request: HttpRequest) -> HttpResponse:
+    if request.method == 'POST':
+        form = ProfileForm(request.user, request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Profile updated successfully.')
+            return redirect('profile')
+    else:
+        form = ProfileForm(request.user)
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    return render(request, 'auctions/profile.html', {
+        'form': form,
+        'profile': profile,
+        'listed_count': AuctionItem.objects.filter(owner=request.user).count(),
+        'bid_count': Bid.objects.filter(bidder=request.user).count(),
+        'won_count': Order.objects.filter(buyer=request.user).count(),
+    })
+
+
+@login_required
 def item_create(request: HttpRequest) -> HttpResponse:
     if request.method == 'POST':
         form = AuctionItemForm(request.POST, request.FILES)
@@ -306,6 +350,54 @@ def item_detail(request: HttpRequest, pk: int) -> HttpResponse:
         'seller_upi': seller_upi,
         'seller_bank': seller_bank,
     })
+
+
+@login_required
+def order_payment_start(request: HttpRequest, pk: int) -> HttpResponse:
+    """Create the winner's order payment and open the selected existing payment flow."""
+    item = get_object_or_404(AuctionItem, pk=pk)
+    highest = item.highest_bid
+    if not highest or highest.bidder_id != request.user.id:
+        messages.error(request, 'Only the auction winner can pay for this order.')
+        return redirect('item_detail', pk=pk)
+    if not item.is_settled and item.ends_at > timezone.now():
+        messages.error(request, 'Payment opens after the auction ends.')
+        return redirect('item_detail', pk=pk)
+
+    order, _ = Order.objects.get_or_create(
+        item=item,
+        buyer=request.user,
+        defaults={'amount': highest.amount},
+    )
+    if order.status == 'paid':
+        messages.info(request, 'This order is already marked as paid.')
+        return redirect('item_detail', pk=pk)
+
+    provider_param = (request.GET.get('provider') or 'gpay').lower()
+    provider = {
+        'phonepe': 'phonepe',
+        'pp': 'phonepe',
+        'bank': 'bank',
+        'upi': 'bank',
+        'crypto': 'blockchain',
+        'blockchain': 'blockchain',
+    }.get(provider_param, 'google_pay')
+    payment = Payment.objects.create(
+        item=item,
+        buyer=request.user,
+        recipient=item.owner,
+        amount=order.amount,
+        purpose='order',
+        provider=provider,
+        status='pending',
+    )
+    if provider == 'blockchain':
+        return redirect('crypto_pay_start', pk=payment.pk)
+    if provider == 'bank':
+        return redirect('bank_pay_start', pk=payment.pk)
+    if provider == 'phonepe':
+        return redirect('phonepe_pay_start', pk=payment.pk)
+    return redirect('google_pay_start', pk=payment.pk)
 
 
 @login_required
@@ -1360,7 +1452,13 @@ def update_payment_methods(request: HttpRequest) -> HttpResponse:
         changed = True
 
     if changed:
-        profile.save(update_fields=['upi_vpa', 'bank_holder_name', 'bank_account_number', 'bank_ifsc'])
+        profile.save(update_fields=[
+            'upi_vpa',
+            'bank_holder_name',
+            'bank_account_number',
+            'bank_ifsc',
+            'auto_debit_consent',
+        ])
         messages.success(request, 'Payment methods updated.')
     else:
         messages.info(request, 'No changes detected.')
@@ -1405,34 +1503,34 @@ def export_user_data(request: HttpRequest) -> HttpResponse:
             'is_active': user.is_active,
             'is_staff': user.is_staff,
         },
-        'profile': self.serialize_model_data(
+        'profile': serialize_model_data(
             UserProfile.objects.filter(user=user)
         ),
-        'wallet': self.serialize_model_data(
+        'wallet': serialize_model_data(
             Wallet.objects.filter(user=user)
         ),
-        'wallet_transactions': self.serialize_model_data(
+        'wallet_transactions': serialize_model_data(
             WalletTransaction.objects.filter(user=user)
         ),
-        'wallet_holds': self.serialize_model_data(
+        'wallet_holds': serialize_model_data(
             WalletHold.objects.filter(user=user)
         ),
-        'owned_items': self.serialize_model_data(
+        'owned_items': serialize_model_data(
             AuctionItem.objects.filter(owner=user)
         ),
-        'bids': self.serialize_model_data(
+        'bids': serialize_model_data(
             Bid.objects.filter(bidder=user)
         ),
-        'payments': self.serialize_model_data(
+        'payments': serialize_model_data(
             Payment.objects.filter(buyer=user)
         ),
-        'payments_received': self.serialize_model_data(
+        'payments_received': serialize_model_data(
             Payment.objects.filter(recipient=user)
         ),
-        'orders': self.serialize_model_data(
+        'orders': serialize_model_data(
             Order.objects.filter(buyer=user)
         ),
-        'auction_participations': self.serialize_model_data(
+        'auction_participations': serialize_model_data(
             AuctionParticipant.objects.filter(user=user)
         ),
     }

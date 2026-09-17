@@ -36,4 +36,38 @@ class WalletAndBiddingTests(TestCase):
         self.assertTrue(bid.tx_id)
         self.assertEqual(len(str(bid.tx_id)), 36)
 
-# Create your tests here.
+
+class PublicAndAccountFlowTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            username='viewer',
+            password='pass',
+            email='viewer@example.com',
+        )
+        self.item = AuctionItem.objects.create(
+            owner=self.user,
+            title='No Image Auction',
+            description='Visible even without an uploaded image.',
+            address='Test address',
+            starting_price=Decimal('25.00'),
+            starts_at=timezone.now() - timezone.timedelta(minutes=5),
+            ends_at=timezone.now() + timezone.timedelta(hours=1),
+        )
+
+    def test_home_renders_items_without_images(self):
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No Image Auction')
+
+    def test_profile_and_export_are_available_after_login(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get('/profile/').status_code, 200)
+        export = self.client.get('/export-data/')
+        self.assertEqual(export.status_code, 200)
+        self.assertIn(b'"username": "viewer"', export.content)
+
+    def test_legacy_winner_payment_path_is_not_a_404(self):
+        self.client.force_login(self.user)
+        response = self.client.get(f'/items/{self.item.pk}/payments/?provider=gpay')
+        self.assertEqual(response.status_code, 302)

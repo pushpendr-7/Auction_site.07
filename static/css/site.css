@@ -17,6 +17,7 @@
 body{ background:var(--bg); color:var(--fg); }
 .navbar{ background:#000 !important; }
 .card{ background:var(--surface); border:1px solid var(--border); }
+.card.bg-light, .bg-light{ background:#111 !important; color:var(--fg); }
 .card .card-title{ color:var(--fg); }
 .card .card-text{ color:var(--muted); }
 .alert{ border:1px solid var(--border); color:var(--fg); background:transparent; }
@@ -30,6 +31,8 @@ body{ background:var(--bg); color:var(--fg); }
 .form-label{ color:var(--fg); }
 .navbar .navbar-brand, .navbar .nav-link, .navbar .navbar-text { color:var(--fg) !important; }
 .form-control{ background:#000; color:var(--fg); border:1px solid var(--border); }
+.form-select{ background-color:#000; color:var(--fg); border-color:var(--border); }
+.input-group-text{ background:#111; color:var(--fg); border-color:var(--border); }
 .form-control::placeholder{ color:rgba(255,255,255,.6); }
 
 /* Links */
@@ -77,3 +80,7 @@ a:hover{ color:var(--success); }
 /* Images: ensure they are visible and responsive */
 img{ max-width:100%; height:auto; display:block; }
 .card-img-top{ width:100%; height:auto; }
+.auction-card-image{ height:220px; object-fit:cover; }
+.auction-card-placeholder{ height:220px; display:grid; place-items:center; background:linear-gradient(135deg,#141414,#252525); color:var(--muted); font-size:4rem; }
+.profile-avatar{ width:64px; height:64px; border-radius:50%; display:grid; place-items:center; background:var(--success); color:#000; font-size:1.6rem; font-weight:800; }
+.stat-card{ min-height:110px; }
